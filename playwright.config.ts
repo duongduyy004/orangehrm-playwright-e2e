@@ -10,7 +10,8 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
     video: "retain-on-failure",
-    trace: "retain-on-failure"
+    trace: "retain-on-failure",
+    locale: "en-US"
   },
   reporter: [["list"], ["html", { open: "never" }]]
 });
