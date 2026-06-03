@@ -133,21 +133,11 @@ async function runUserCase(tc: any, app: OrangeHrmPage) {
 
   if (["TC-U07", "TC-U08"].includes(tc.id)) {
     await fillAddUserForm(page, arg2, arg3, arg4, arg1);
-    await page.locator(".oxd-input-group", { hasText: /^(Password|密码)$/i }).locator("input").first().focus();
+    await page.getByRole("button", { name: /Save|保存/i }).click();
 
-    // Verify constraints
-    const usernameInput = page.locator(".oxd-input-group", { hasText: /Username|用户名/i }).locator("input");
-    if (tc.id === "TC-U08") {
-      const enteredValue = await usernameInput.inputValue();
-      const isTruncated = enteredValue.length < arg1.length;
-      if (!isTruncated) {
-        const errorText = page.locator(".oxd-input-group", { hasText: /Username|用户名/i }).locator(".oxd-input-field-error-message");
-        await expect(errorText).toBeVisible({ timeout: 5000 });
-      }
-    } else {
-      const errorText = page.locator(".oxd-input-group", { hasText: /Username|用户名/i }).locator(".oxd-input-field-error-message");
-      await expect(errorText).toBeVisible({ timeout: 5000 });
-    }
+    // Verify constraints - it should show error and NOT save
+    const errorText = page.locator(".oxd-input-group", { hasText: /Username|用户名/i }).locator(".oxd-input-field-error-message");
+    await expect(errorText).toBeVisible({ timeout: 5000 });
     return;
   }
 
@@ -227,16 +217,21 @@ async function runUserCase(tc: any, app: OrangeHrmPage) {
     const rows = page.locator(".oxd-table-body .oxd-table-row");
     const checks = page.locator(".oxd-table-body .oxd-checkbox-input");
     await expect(checks.count()).resolves.toBeGreaterThan(0);
-    await expect(checks.count()).resolves.toBeLessThanOrEqual(await rows.count());
+    expect(await checks.count()).toBe(await rows.count());
     return;
   }
 
   if (tc.id === "TC-U14") {
+    await page.locator(".oxd-table-body .oxd-table-row").first().waitFor({ state: "visible" });
+    const countBefore = await page.locator(".oxd-table-body .oxd-table-row").count();
+    
     await app.logoutIfLoggedIn();
     await app.login(loginUser, loginPass);
     await app.openAdminUsers();
+    
     await page.locator(".oxd-table-body .oxd-table-row").first().waitFor({ state: "visible" });
-    await expect(page.locator(".oxd-table-body .oxd-table-row").first()).toBeVisible();
+    const countAfter = await page.locator(".oxd-table-body .oxd-table-row").count();
+    expect(countBefore).toBe(countAfter);
     return;
   }
 
