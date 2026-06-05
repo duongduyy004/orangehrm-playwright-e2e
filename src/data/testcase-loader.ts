@@ -13,7 +13,7 @@ export type TestCaseRow = {
 
 const DATA_FILE =
   process.env.ORANGEHRM_TESTCASE_FILE ??
-  "./OrangeHRM_TestCases_v5.xlsx";
+  "./OrangeHRM_TC_Final.xlsx";
 
 const SHEETS = ["🔐 Login", "👤 User Management", "👥 Employee List"];
 

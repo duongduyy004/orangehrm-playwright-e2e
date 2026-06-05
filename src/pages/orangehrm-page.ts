@@ -62,11 +62,16 @@ export class OrangeHrmPage {
   }
 
   async openEmployeeList() {
-    const pimLink = this.page.locator("a[href*='viewPimModule']").first();
-    await pimLink.waitFor({ state: "visible", timeout: 15000 });
-    await pimLink.click();
-    await expect(this.page).toHaveURL(/pim\/viewEmployeeList/);
-    await this.page.locator(".oxd-loading-spinner").waitFor({ state: "detached" }).catch(() => {});
+    // Thử click link PIM trên sidebar; nếu không tìm thấy (chậm), navigate trực tiếp
+    const pimLink = this.page.locator("a[href*='viewPimModule'], a[href*='pim/viewEmployeeList']").first();
+    const isVisible = await pimLink.isVisible({ timeout: 5000 }).catch(() => false);
+    if (isVisible) {
+      await pimLink.click();
+    } else {
+      await this.page.goto("/web/index.php/pim/viewEmployeeList");
+    }
+    await expect(this.page).toHaveURL(/pim\/viewEmployeeList/, { timeout: 20000 });
+    await this.page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
   }
 
   async searchByLabeledInput(label: string, value: string) {
@@ -76,7 +81,7 @@ export class OrangeHrmPage {
       ? /Employee Name|员工姓名/i 
       : new RegExp(label, "i");
     const field = this.page
-      .locator(".oxd-form-row")
+      .locator(".oxd-input-group")
       .filter({ hasText: labelRegex })
       .locator("input")
       .first();
