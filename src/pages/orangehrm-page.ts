@@ -7,33 +7,76 @@ export class OrangeHrmPage {
     await this.page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout }).catch(() => {});
   }
 
-  async gotoLogin() {
-    // Use domcontentloaded and a shorter timeout with retry to bypass slow asset load issues
-    try {
-      await this.page.goto("/web/index.php/auth/login", { waitUntil: "commit", timeout: 45000 });
-    } catch (e) {
-      await this.page.goto("/web/index.php/auth/login", { waitUntil: "commit", timeout: 45000 });
-    }
-    
-    // Wait for either the login submit button to render or redirect to dashboard (active session)
-    try {
-      await Promise.race([
-        this.page.locator("button[type='submit']").waitFor({ state: "visible", timeout: 15000 }),
-        this.page.waitForURL(/dashboard/i, { timeout: 15000 })
-      ]);
-    } catch (e) {
-      // Ignore timeout
+  private async waitForAdminUsersContent(timeout = 10000) {
+    await this.page.waitForFunction(() => {
+      const addButton = Array.from(document.querySelectorAll("button"))
+        .some((button) => (button.textContent ?? "").trim() === "Add");
+      const usernameLabel = Array.from(document.querySelectorAll("label"))
+        .some((label) => /^Username/i.test((label.textContent ?? "").trim()));
+      const tableContainer = document.querySelector(".orangehrm-paper-container, .oxd-table-filter-header");
+      return addButton || usernameLabel || Boolean(tableContainer);
+    }, { timeout }).catch(() => {});
+  }
+
+  private async hasVisibleAdminUsersPage() {
+    const addButtonVisible = await this.page.getByRole("button", { name: /Add/i })
+      .isVisible()
+      .catch(() => false);
+    if (addButtonVisible) return true;
+
+    const usernameFilterVisible = await this.page.locator(".oxd-input-group")
+      .filter({ has: this.page.locator("label").filter({ hasText: /^Username/i }) })
+      .locator("input")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (usernameFilterVisible) return true;
+
+    return this.page.locator(".oxd-table-filter-header, .orangehrm-paper-container")
+      .first()
+      .isVisible()
+      .catch(() => false);
+  }
+
+  private isAdminUsersUrl() {
+    return /\/admin\/viewSystemUsers/i.test(this.page.url());
+  }
+
+  async ensureAdminUsersReady() {
+    if (!this.isAdminUsersUrl()) {
+      await this.openAdminUsers();
+      return;
     }
 
-    if (this.page.url().includes("/dashboard")) {
+    await this.waitForSpinnerToClear();
+    await this.waitForAdminUsersContent(5000);
+    if (await this.hasVisibleAdminUsersPage()) return;
+
+    await this.openAdminUsers();
+  }
+
+  async gotoLogin() {
+    try {
+      await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 });
+    } catch (e) {
+      await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 });
+    }
+
+    const loginVisible = await this.page.locator("button[type='submit']")
+      .waitFor({ state: "visible", timeout: 15000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!loginVisible && this.page.url().includes("/dashboard")) {
       await this.logoutIfLoggedIn();
-      await this.page.goto("/web/index.php/auth/login", { waitUntil: "commit", timeout: 45000 }).catch(() => {});
+      await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
       await this.page.locator("input[name='username']").waitFor({ state: "visible", timeout: 15000 });
     }
   }
 
   async login(username: string, password: string) {
     await this.gotoLogin();
+    let lastError = "";
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const usernameInput = this.page.locator("input[name='username']");
@@ -41,24 +84,32 @@ export class OrangeHrmPage {
         .then(() => true)
         .catch(() => false);
       if (!loginReady) {
-        await this.page.goto("/web/index.php/auth/login", { waitUntil: "commit", timeout: 45000 }).catch(() => {});
+        await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
         continue;
       }
       await usernameInput.fill(username);
       await this.page.locator("input[name='password']").fill(password);
       await this.page.locator("button[type='submit']").click();
 
-      await Promise.race([
-        this.page.waitForURL(/dashboard/i, { timeout: 20000 }).catch(() => {}),
-        this.page.locator(".oxd-alert-content, .oxd-input-field-error-message").first()
-          .waitFor({ state: "visible", timeout: 10000 }).catch(() => {})
-      ]);
+      const reachedDashboard = await this.page.waitForURL(/dashboard/i, { timeout: 20000 })
+        .then(() => true)
+        .catch(() => false);
 
-      if (this.page.url().includes("/dashboard")) return;
-      if (await this.page.locator(".oxd-alert-content, .oxd-input-field-error-message").first().isVisible().catch(() => false)) return;
+      if (reachedDashboard || this.page.url().includes("/dashboard")) {
+        await this.page.locator("a[href*='viewAdminModule']").first()
+          .waitFor({ state: "visible", timeout: 15000 })
+          .catch(() => {});
+        return;
+      }
+      const errorBanner = this.page.locator(".oxd-alert-content, .oxd-input-field-error-message").first();
+      if (await errorBanner.waitFor({ state: "visible", timeout: 5000 }).then(() => true).catch(() => false)) {
+        lastError = (await errorBanner.innerText().catch(() => "")).trim();
+      }
 
       await this.page.waitForTimeout(1000);
     }
+
+    throw new Error(`Login did not reach the dashboard after 3 attempts. ${lastError || `Current URL: ${this.page.url()}`}`.trim());
   }
 
   async logoutIfLoggedIn() {
@@ -71,11 +122,38 @@ export class OrangeHrmPage {
   }
 
   async openAdminUsers() {
-    await this.page.goto("/web/index.php/admin/viewSystemUsers", { waitUntil: "commit", timeout: 45000 });
-    await expect(this.page).toHaveURL(/admin\/viewSystemUsers/);
-    await this.waitForSpinnerToClear();
-    await expect(this.page.getByRole("heading", { name: /System Users/i })).toBeVisible({ timeout: 15000 });
-    await expect(this.page.getByRole("button", { name: /Add/i })).toBeVisible({ timeout: 15000 });
+    if (this.isAdminUsersUrl()) {
+      await this.waitForSpinnerToClear();
+      await this.waitForAdminUsersContent(5000);
+      if (await this.hasVisibleAdminUsersPage()) return;
+    }
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.page.goto("/web/index.php/admin/viewSystemUsers", { waitUntil: "domcontentloaded", timeout: 45000 });
+      await expect(this.page).toHaveURL(/admin\/viewSystemUsers/, { timeout: 15000 });
+      await this.waitForSpinnerToClear();
+      await this.waitForAdminUsersContent();
+
+      if (await this.hasVisibleAdminUsersPage()) return;
+
+      const bodyText = await this.page.locator("body").innerText().catch(() => "");
+      if (bodyText.trim()) {
+        await this.page.reload({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+        await this.waitForSpinnerToClear();
+        if (await this.hasVisibleAdminUsersPage()) return;
+      }
+    }
+
+    const adminSidebarLink = this.page.locator("a[href*='viewAdminModule']").first();
+    if (await adminSidebarLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await adminSidebarLink.click();
+      await expect(this.page).toHaveURL(/admin\/viewSystemUsers/, { timeout: 20000 });
+      await this.waitForSpinnerToClear();
+      await this.waitForAdminUsersContent();
+      if (await this.hasVisibleAdminUsersPage()) return;
+    }
+
+    throw new Error("Admin User Management page did not render visible controls after 3 navigation attempts.");
   }
 
   async ensureAdminUserFiltersVisible() {
