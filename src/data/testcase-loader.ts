@@ -65,7 +65,7 @@ export function loadTestCases(): TestCaseRow[] {
         name: String(row[1] ?? "").trim(),
         objective: String(row[2] ?? "").trim(),
         inputRaw,
-        input: inputRaw.split("\n"),
+        input: inputRaw.split("\n").map(s => s.trim()),
         expected: String(row[5] ?? "").trim(),
         expectedStatus: String(row[7] ?? "").trim()
       });
