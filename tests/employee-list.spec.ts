@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { loadTestCases } from "../src/data/testcase-loader";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 
-const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Employee List"));
+const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Employee List") || tc.sheet.includes("Danh sách nhân viên"));
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -36,14 +36,16 @@ async function fillAddEmployeeForm(
   page: any,
   firstName: string,
   lastName: string,
-  employeeId = ""
+  employeeId = "",
+  middleName = ""
 ) {
   // Nút "Add" nằm trong header container, chứa icon + chữ " Add "
   await page.locator(".orangehrm-header-container button").click();
   await expect(page).toHaveURL(/pim\/addEmployee/, { timeout: 10000 });
 
-  // Điền First Name và Last Name theo placeholder (như hình 3)
+  // Điền First Name, Middle Name và Last Name theo placeholder
   if (firstName) await page.getByPlaceholder("First Name").fill(firstName);
+  if (middleName) await page.getByPlaceholder("Middle Name").fill(middleName);
   if (lastName)  await page.getByPlaceholder("Last Name").fill(lastName);
 
   // Điền Employee ID nếu có (input trong .oxd-grid-2, clear trước khi fill)
@@ -99,7 +101,7 @@ async function deleteEmployeeIfExists(page: any, app: OrangeHrmPage, name: strin
 
 async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
   const page = app["page"];
-  const [loginUser = "Admin", loginPass = "admin123", a2 = "", a3 = "", a4 = ""] = tc.input;
+  const [loginUser = "Admin", loginPass = "admin123", a2 = "", a3 = "", a4 = "", a5 = ""] = tc.input;
 
   await app.login(loginUser, loginPass);
   await app.openEmployeeList();
@@ -111,10 +113,8 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       // Chờ bảng render xong trước khi check headers
       await page.locator(".oxd-table-header").waitFor({ state: "visible", timeout: 10000 });
 
-      // hasText với string là case-insensitive, nên 'Id' sẽ match cả 'Middle' (chứa 'id').
-      // Dùng regex /^Id/ (bắt đầu bằng Id) cho cột Id để tránh Strict Mode.
       const requiredHeaders: Array<string | RegExp> = [
-        /^Id/,
+        /^Id/i,
         "First (& Middle) Name",
         "Last Name",
         "Job Title",
@@ -130,9 +130,10 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E02": {
-      // Thay a2 "Orange" thành "test" nếu giá trị là Orange vốn không có trong CSDL (theo user update)
-      const searchName = (a2 && a2.trim().toLowerCase() === "orange") ? "test" : (a2 || "test");
+    case "TC-E02":
+    case "TC-E04": {
+      // Thay a2 "Orange" hoặc "Ora" thành "test" nếu giá trị là Orange vốn không có trong CSDL
+      const searchName = (a2 && (a2.trim().toLowerCase() === "orange" || a2.trim().toLowerCase() === "ora")) ? "test" : (a2 || "test");
       await app.searchByLabeledInput("Employee Name", searchName);
       await page.locator("button[type='submit']").click();
       await waitForSpinner(page);
@@ -148,7 +149,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E04": {
+    case "TC-E05": {
       // Filter by Employment Status
       const statusGroup = page.locator(".oxd-input-group", { hasText: /Employment Status/i });
       await statusGroup.locator(".oxd-select-text").click();
@@ -160,22 +161,17 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E05": {
+    case "TC-E06": {
       // Sort by First (& Middle) Name
-      // Từ hình 1: click vào icon sort để mở dropdown (class --active khi đang mở),
-      // rồi click item Ascending/Descending bên trong dropdown đó.
-      // Mỗi cột đều có dropdown riêng → scope vào dropdown đang --active để tránh Strict Mode.
       const firstNameHeader = page.locator('[role="columnheader"]').filter({ hasText: "First (& Middle) Name" });
 
       // Mở sort dropdown của cột First Name
       await firstNameHeader.locator(".oxd-table-header-sort").click();
-      // Scope vào chính dropdown của cột này ("--active" xuất hiện khi đang mở)
       await firstNameHeader.locator(".oxd-table-header-sort-dropdown-item")
         .filter({ hasText: /Ascending/i }).first().click();
       await waitForSpinner(page);
 
       const getCellTexts = async () => {
-        // Cột: [0]=checkbox, [1]=Id, [2]=First (& Middle) Name
         const rows = page.locator(".oxd-table-body .oxd-table-row");
         const rowCount = await rows.count();
         const texts: string[] = [];
@@ -201,18 +197,24 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
+    case "TC-E07": {
+      // Tìm kiếm khi không nhập từ khóa
+      await page.locator("button[type='submit']").click();
+      await waitForSpinner(page);
+      const count = await page.locator(".oxd-table-body .oxd-table-row").count();
+      expect(count).toBeGreaterThan(0);
+      break;
+    }
+
     // ── Nhóm 2: Thêm nhân viên ────────────────────────────────────────
-    case "TC-E06": {
+    case "TC-E08": {
       // Happy path: thêm employee thành công
-      const [fn, ln] = [a2 || "John", a3 || "AutoTest"];
+      const [fn, ln] = [a2 || "Nguyen", a3 || "TieuHoc"];
       await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
       await app.openEmployeeList();
       await waitForListPage(page);
       await fillAddEmployeeForm(page, fn, ln);
-      // Nút Save trên form addEmployee (hình 3) – type=submit
       await page.locator("button[type='submit']").click();
-      // OrangeHRM toast xuất hiện ngay sau save thành công
-      // Toast class: .oxd-toast--success chứa text trong .oxd-toast-content
       await expect(
         page.locator(".oxd-toast--success, .oxd-toast-content")
           .filter({ hasText: /Saved|Success|成功/i })
@@ -221,74 +223,68 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E07": {
+    case "TC-E09": {
       // BUG BG53: Nhân viên mới không hiện trong list ngay lập tức
-      // Do total count public không ổn định, ta sẽ thêm mới 1 nhân viên với tên unique,
-      // sau đó về list search đúng tên đó xem có ra ngay không.
+      // Bước 1: Ghi nhận số lượng records hiện tại
+      const countBefore = await getRecordCount(page);
+
+      // Bước 2: Thêm nhân viên mới
       const fn = `Check${Date.now()}`;
-      const ln = a3 || "Visibility";
-      
+      const ln = a3 || "HienThi";
       await fillAddEmployeeForm(page, fn, ln);
       await page.locator("button[type='submit']").click();
       await page.locator(".oxd-toast--success").first()
         .waitFor({ state: "visible", timeout: 15000 });
 
-      // Quay lại list
+      // Bước 3: Quay lại danh sách nhân viên (không dùng Search/Filter)
       await app.openEmployeeList();
       await waitForListPage(page);
+
+      // Bước 4: Kiểm tra xem tổng số records có tăng lên 1 hay không
+      const countAfter = await getRecordCount(page);
       
-      // Search nhân viên vừa thêm
-      await app.searchByLabeledInput("Employee Name", fn);
-      await page.locator("button[type='submit']").click();
-      await waitForSpinner(page);
-
-      // Nếu đây là Bug BG53, thì sẽ không tìm thấy
-      const hasRecord = await page.locator(".oxd-table-body .oxd-table-row").first().isVisible({ timeout: 5000 }).catch(() => false);
-      if (!hasRecord) {
-         throw new Error(`BUG BG53: Nhân viên mới "${fn} ${ln}" không hiển thị trong danh sách sau khi thêm thành công.`);
+      if (countAfter !== countBefore + 1) {
+        throw new Error(`BUG BG53: Nhân viên mới "${fn} ${ln}" không hiển thị trong danh sách mặc định sau khi thêm thành công. Số lượng không tăng (trước: ${countBefore}, sau: ${countAfter}).`);
       }
-      expect(hasRecord).toBe(true);
-      break;
-    }
-
-    case "TC-E08": {
-      // Để trống First Name → phải có lỗi Required
-      await fillAddEmployeeForm(page, "", a3 || "AutoTest");
-      await page.locator("button[type='submit']").click();
-      await expect(page.locator(".oxd-input-field-error-message").first())
-        .toContainText(/Required/i, { timeout: 5000 });
-      break;
-    }
-
-    case "TC-E09": {
-      // Để trống Last Name → phải có lỗi Required
-      await fillAddEmployeeForm(page, a2 || "John", "");
-      await page.locator("button[type='submit']").click();
-      await expect(page.locator(".oxd-input-field-error-message").first())
-        .toContainText(/Required/i, { timeout: 5000 });
+      expect(countAfter).toBe(countBefore + 1);
       break;
     }
 
     case "TC-E10": {
+      // Bỏ trống Họ (Last Name) → phải có lỗi Required
+      await fillAddEmployeeForm(page, a2 || "Nguyen", "");
+      await page.locator("button[type='submit']").click();
+      await expect(page.locator(".oxd-input-field-error-message").first())
+        .toContainText(/Required/i, { timeout: 5000 });
+      break;
+    }
+
+    case "TC-E11": {
+      // Bỏ trống Tên (First Name) → phải có lỗi Required
+      await fillAddEmployeeForm(page, "", a3 || "TieuHoc");
+      await page.locator("button[type='submit']").click();
+      await expect(page.locator(".oxd-input-field-error-message").first())
+        .toContainText(/Required/i, { timeout: 5000 });
+      break;
+    }
+
+    case "TC-E12": {
       // Nhập Employee ID trùng lặp
       const existingId = await getFirstEmployeeId(page);
       expect(existingId.length).toBeGreaterThan(0);
 
-      await fillAddEmployeeForm(page, a2 || "Duplicate", a3 || "IDTest", existingId);
+      await fillAddEmployeeForm(page, a2 || "Trung", a3 || "MaSo", existingId);
       
       // Kích hoạt validation bằng cách click ra label Employee Id để blur input
       await page.locator("label").filter({ hasText: "Employee Id" }).click();
       
       // Đợi validation error text "Employee Id already exists" xuất hiện
       const errLocator = page.locator(".oxd-input-field-error-message").filter({ hasText: /exists/i });
-      
-      // Chờ thử xem lỗi đỏ có hiện ra ko
       const hasErrorVisible = await errLocator.first().isVisible({ timeout: 5000 }).catch(() => false);
       
       await page.locator("button[type='submit']").click();
 
       const successLocator = page.locator(".oxd-toast--success, .oxd-toast-content");
-      
       try {
         await successLocator.first().waitFor({ state: "visible", timeout: 7000 });
       } catch { /* ignore */ }
@@ -304,27 +300,45 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       expect(hasErrorVisible, `Không có error message khi dùng Employee ID trùng "${existingId}"`).toBe(true);
       break;
     }
-    case "TC-E11": {
-      // First Name 200 ký tự – verify behavior
-      // OrangeHRM hiện tại CHẤP NHẬN 200 ký tự mà không cắt ngắn, không hiện lỗi (BUG tiềm ẩn).
-      // Test case này ghi nhận hành vi thực tế: nếu server accept thì test pass,
-      // nếu server reject (có error message hoặc bị truncate) thì test cũng pass.
-      const longName = a2 || "A".repeat(200);
-      await fillAddEmployeeForm(page, longName, a3 || "Boundary");
-      const actualValue = await page.getByPlaceholder("First Name").inputValue();
-      const hasError = await page.locator(".oxd-input-field-error-message").isVisible().catch(() => false);
-      const isTruncated = actualValue.length < longName.length;
-      const isAccepted  = actualValue === longName; // server/UI chấp nhận đủ 200 ký tự
-      // Một trong 3 trường hợp đều hợp lệ
-      expect(hasError || isTruncated || isAccepted).toBe(true);
+
+    case "TC-E13": {
+      // Tên Unicode tiếng Việt
+      const [fn, ln] = [a2 || "Nguyễn", a3 || "Văn An"];
+      await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
+      await app.openEmployeeList();
+      await waitForListPage(page);
+      await fillAddEmployeeForm(page, fn, ln);
+      await page.locator("button[type='submit']").click();
+      await expect(page.getByText(/Successfully Saved|Success|成功/i).first())
+        .toBeVisible({ timeout: 15000 });
+
+      // Search và verify hiển thị đúng tên tiếng Việt
+      await app.openEmployeeList();
+      await waitForListPage(page);
+      await app.searchByLabeledInput("Employee Name", fn);
+      await page.locator("button[type='submit']").click();
+      await waitForSpinner(page);
+      await expect(page.locator(".oxd-table-body")).toContainText(fn);
+      break;
+    }
+
+    case "TC-E14": {
+      // Thêm nhân viên có tên đệm
+      const [fn, ln, id, mn] = [a2 || "Le", a3 || "Van Anh", a4 || "", a5 || "Hoang"];
+      await deleteEmployeeIfExists(page, app, `${fn} ${mn} ${ln}`);
+      await app.openEmployeeList();
+      await waitForListPage(page);
+      await fillAddEmployeeForm(page, fn, ln, id, mn);
+      await page.locator("button[type='submit']").click();
+      await expect(page.locator(".oxd-toast--success, .oxd-toast-content").first()).toBeVisible({ timeout: 15000 });
       break;
     }
 
     // ── Nhóm 3: Chỉnh sửa & xóa ──────────────────────────────────────
-    case "TC-E12": {
-      // Thay vì tìm user có sẵn rồi edit (do flaky nếu nhiều ng trùng tên), ta tạo luôn 1 user unique.
-      const uniqueFn = `John${Date.now()}`;
-      const uniqueLn = a3 || "AutoTest";
+    case "TC-E15": {
+      const uniqueFn = `Nguyen${Date.now()}`;
+      const uniqueLn = a3 || "TieuHoc";
+      const newLastName = a3 || "TenMoi";
       
       await fillAddEmployeeForm(page, uniqueFn, uniqueLn);
       await page.locator("button[type='submit']").click();
@@ -337,7 +351,6 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await page.locator("button[type='submit']").click();
       await waitForSpinner(page);
 
-      // Đợi action buttons visible (chắc chắn có dữ liệu trong bảng)
       await page.locator(".oxd-table-cell-actions button").first()
         .waitFor({ state: "visible", timeout: 20000 });
 
@@ -345,8 +358,6 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await page.locator(".oxd-table-body .oxd-table-row").first()
         .locator(".oxd-table-cell-actions button").first().click();
       await expect(page).toHaveURL(/pim\/viewPersonalDetails/, { timeout: 10000 });
-
-      const newLastName = "UpdatedSurname";
 
       // Last Name input
       const lastNameInput = page.getByPlaceholder("Last Name");
@@ -362,11 +373,47 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await expect(page.locator(".oxd-toast--success, .oxd-toast-content")
         .filter({ hasText: /Updated|Saved|Success/i }).first())
         .toBeVisible({ timeout: 10000 });
+      break;
+    }
+
+    case "TC-E16": {
+      const uniqueFn = `Nguyen${Date.now()}`;
+      const uniqueLn = a3 || "TenMoi";
+      const newLastName = a3 || "TenSua2";
+      
+      await fillAddEmployeeForm(page, uniqueFn, uniqueLn);
+      await page.locator("button[type='submit']").click();
+      await page.locator(".oxd-toast--success").first().waitFor({ state: "visible", timeout: 15000 });
+      
+      await app.openEmployeeList();
+      await waitForListPage(page);
+      await app.searchByLabeledInput("Employee Name", uniqueFn);
+      await page.locator("button[type='submit']").click();
+      await waitForSpinner(page);
+
+      await page.locator(".oxd-table-cell-actions button").first()
+        .waitFor({ state: "visible", timeout: 20000 });
+
+      await page.locator(".oxd-table-body .oxd-table-row").first()
+        .locator(".oxd-table-cell-actions button").first().click();
+      await expect(page).toHaveURL(/pim\/viewPersonalDetails/, { timeout: 10000 });
+
+      const lastNameInput = page.getByPlaceholder("Last Name");
+      await lastNameInput.fill(newLastName);
+
+      const nameCard = page.locator(".orangehrm-card-container").filter({
+        has: page.getByPlaceholder("Last Name")
+      });
+      const saveInCard = nameCard.locator("button[type='submit'], button.oxd-button--secondary").first();
+      await saveInCard.click();
+
+      await expect(page.locator(".oxd-toast--success, .oxd-toast-content")
+        .filter({ hasText: /Updated|Saved|Success/i }).first())
+        .toBeVisible({ timeout: 10000 });
 
       // Verify persist sau reload
       await page.reload();
       await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
-      // Đợi input Last Name có giá trị
       await expect(page.getByPlaceholder("Last Name")).not.toHaveValue("", { timeout: 15000 });
       const savedValue = await page.getByPlaceholder("Last Name").inputValue();
       if (savedValue !== newLastName) {
@@ -377,7 +424,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E13": {
+    case "TC-E17": {
       // Xóa employee bằng icon trash ở cột Actions (hình 4)
       await app.searchByLabeledInput("Employee Name", a2);
       await page.locator("button[type='submit']").click();
@@ -402,7 +449,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E14": {
+    case "TC-E18": {
       // Nút "Delete Selected" không hiển thị khi chưa chọn checkbox nào
       const deleteBtn = page.locator(".orangehrm-header-container button", { hasText: /Delete Selected/i });
       await expect(deleteBtn).not.toBeVisible();
@@ -410,9 +457,9 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
     }
 
     // ── Nhóm 4: Tính toàn vẹn dữ liệu ────────────────────────────────
-    case "TC-E15": {
+    case "TC-E19": {
       // Search ngay sau khi thêm
-      const [fn, ln] = [a2 || "SearchAfter", a3 || "Add"];
+      const [fn, ln] = [a2 || "TimKiem", a3 || "NgayLap"];
       await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
       await app.openEmployeeList();
       await waitForListPage(page);
@@ -430,41 +477,9 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E16": {
-      // Phân trang – không duplicate records
-      await page.locator("button[type='submit']").click();
-      await waitForSpinner(page);
-
-      const getPageIds = async () => {
-        const rows = page.locator(".oxd-table-body .oxd-table-row");
-        const rowCount = await rows.count();
-        const ids: string[] = [];
-        for (let i = 0; i < rowCount; i++) {
-          // Cột Id = index 1
-          ids.push((await rows.nth(i).locator(".oxd-table-cell").nth(1).innerText()).trim());
-        }
-        return ids;
-      };
-
-      const page1Ids = await getPageIds();
-
-      // Chuyển sang trang 2 nếu có
-      const nextBtn = page.locator("[aria-label='Next page'], .oxd-pagination-page-item--next button");
-      if (await nextBtn.isVisible().catch(() => false)) {
-        await nextBtn.click();
-        await waitForSpinner(page);
-        const page2Ids = await getPageIds();
-        const intersection = page1Ids.filter((id) => page2Ids.includes(id));
-        expect(intersection.length).toBe(0);
-      }
-      break;
-    }
-
-    case "TC-E17": {
-      // Không so sánh TOTAL count vì public server không ổn định.
-      // Thay vào đó: Verify employee vừa thêm có xuất hiện trong list
-      const fn = `CountTest${Date.now()}`;
-      const ln = a3 || "Employee";
+    case "TC-E20": {
+      const fn = `DemSo${Date.now()}`;
+      const ln = a3 || "ThemMoi";
       
       await fillAddEmployeeForm(page, fn, ln);
       await page.locator("button[type='submit']").click();
@@ -481,11 +496,9 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E18": {
+    case "TC-E21": {
       // Count giảm sau khi xóa
-      // Không so sánh TOTAL count vì demo public có nhiều người dùng đồng thời.
-      // Thay vào đó: đảm bảo employee tồn tại, xóa nó, rồi verify không tìm thấy nữa.
-      const name = a2 || "CountTest Employee";
+      const name = a2 || "DemSo ThemMoi";
       const [namePart0, ...rest] = name.split(" ");
 
       // Đảm bảo employee tồn tại
@@ -494,7 +507,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await waitForSpinner(page);
 
       if (await page.getByText(/No Records Found/i).first().isVisible().catch(() => false)) {
-        await fillAddEmployeeForm(page, namePart0, rest.join(" ") || "Employee");
+        await fillAddEmployeeForm(page, namePart0, rest.join(" ") || "ThemMoi");
         await page.locator("button[type='submit']").click();
         await page.locator(".oxd-toast--success, .oxd-toast-content")
           .filter({ hasText: /Saved|Success/i }).first()
@@ -506,7 +519,6 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
         await waitForSpinner(page);
       }
 
-      // Xóa dòng đầu tiên của kết quả tìm kiếm
       await deleteFirstRow(page);
 
       // Xác nhận employee đã bị xóa: tìm kiếm lại phải ra No Records Found
@@ -519,44 +531,31 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E19": {
-      // Kiểm tra lại 7 column headers (dùng cùng pattern với E01)
-      await page.locator(".oxd-table-header").waitFor({ state: "visible", timeout: 10000 });
-      const headers: Array<string | RegExp> = [
-        /^Id/,
-        "First (& Middle) Name",
-        "Last Name",
-        "Job Title",
-        "Employment Status",
-        "Sub Unit",
-        "Supervisor",
-      ];
-      for (const h of headers) {
-        await expect(
-          page.locator('[role="columnheader"]').filter({ hasText: h })
-        ).toBeVisible({ timeout: 5000 });
-      }
-      break;
-    }
-
-    case "TC-E20": {
-      // Tên Unicode tiếng Việt
-      const [fn, ln] = [a2 || "Nguyễn", a3 || "Văn An"];
-      await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
-      await app.openEmployeeList();
-      await waitForListPage(page);
-      await fillAddEmployeeForm(page, fn, ln);
-      await page.locator("button[type='submit']").click();
-      await expect(page.getByText(/Successfully Saved|Success|成功/i).first())
-        .toBeVisible({ timeout: 15000 });
-
-      // Search và verify hiển thị đúng tên tiếng Việt
-      await app.openEmployeeList();
-      await waitForListPage(page);
-      await app.searchByLabeledInput("Employee Name", fn);
+    case "TC-E22": {
+      // Phân trang – không duplicate records
       await page.locator("button[type='submit']").click();
       await waitForSpinner(page);
-      await expect(page.locator(".oxd-table-body")).toContainText(fn);
+
+      const getPageIds = async () => {
+        const rows = page.locator(".oxd-table-body .oxd-table-row");
+        const rowCount = await rows.count();
+        const ids: string[] = [];
+        for (let i = 0; i < rowCount; i++) {
+          ids.push((await rows.nth(i).locator(".oxd-table-cell").nth(1).innerText()).trim());
+        }
+        return ids;
+      };
+
+      const page1Ids = await getPageIds();
+
+      const nextBtn = page.locator("[aria-label='Next page'], .oxd-pagination-page-item--next button");
+      if (await nextBtn.isVisible().catch(() => false)) {
+        await nextBtn.click();
+        await waitForSpinner(page);
+        const page2Ids = await getPageIds();
+        const intersection = page1Ids.filter((id) => page2Ids.includes(id));
+        expect(intersection.length).toBe(0);
+      }
       break;
     }
 
@@ -566,10 +565,43 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
 }
 
 test.describe("OrangeHRM Employee List E2E", () => {
-  for (const tc of testCases) {
-    test(`${tc.id} | ${tc.name}`, async ({ page }) => {
-      const app = new OrangeHrmPage(page);
-      await runEmployeeCase(tc, app);
-    });
-  }
+  test.describe("Nhóm 1: Xem & tìm kiếm", () => {
+    const groupCases = testCases.filter((tc) => ["TC-E01", "TC-E02", "TC-E03", "TC-E04", "TC-E05", "TC-E06", "TC-E07"].includes(tc.id));
+    for (const tc of groupCases) {
+      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+        const app = new OrangeHrmPage(page);
+        await runEmployeeCase(tc, app);
+      });
+    }
+  });
+
+  test.describe("Nhóm 2: Thêm nhân viên", () => {
+    const groupCases = testCases.filter((tc) => ["TC-E08", "TC-E09", "TC-E10", "TC-E11", "TC-E12", "TC-E13", "TC-E14"].includes(tc.id));
+    for (const tc of groupCases) {
+      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+        const app = new OrangeHrmPage(page);
+        await runEmployeeCase(tc, app);
+      });
+    }
+  });
+
+  test.describe("Nhóm 3: Chỉnh sửa & xóa", () => {
+    const groupCases = testCases.filter((tc) => ["TC-E15", "TC-E16", "TC-E17", "TC-E18"].includes(tc.id));
+    for (const tc of groupCases) {
+      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+        const app = new OrangeHrmPage(page);
+        await runEmployeeCase(tc, app);
+      });
+    }
+  });
+
+  test.describe("Nhóm 4: Tính toàn vẹn dữ liệu", () => {
+    const groupCases = testCases.filter((tc) => ["TC-E19", "TC-E20", "TC-E21", "TC-E22"].includes(tc.id));
+    for (const tc of groupCases) {
+      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+        const app = new OrangeHrmPage(page);
+        await runEmployeeCase(tc, app);
+      });
+    }
+  });
 });
