@@ -13,9 +13,12 @@ export type TestCaseRow = {
 
 const DATA_FILE =
   process.env.ORANGEHRM_TESTCASE_FILE ??
-  "./OrangeHRM_TC_Final.xlsx";
+  "./OrangeHRM_TC_VN.xlsx";
 
-const SHEETS = ["🔐 Login", "👤 User Management", "👥 Employee List"];
+const SHEETS = [
+  "🔐 Login", "👤 User Management", "👥 Employee List",
+  "Đăng nhập", "Quản lý người dùng", "Danh sách nhân viên"
+];
 
 export function loadTestCases(): TestCaseRow[] {
   const wb = XLSX.readFile(DATA_FILE);

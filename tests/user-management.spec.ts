@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { loadTestCases } from "../src/data/testcase-loader";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 
-const testCases = loadTestCases().filter((tc) => tc.sheet.includes("User Management"));
+const testCases = loadTestCases().filter((tc) => tc.sheet.includes("User Management") || tc.sheet.includes("Quản lý người dùng"));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

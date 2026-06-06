@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { loadTestCases } from "../src/data/testcase-loader";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 
-const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Login"));
+const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Login") || tc.sheet.includes("Đăng nhập"));
 
 async function runLoginCase(tc: any, app: OrangeHrmPage) {
   const page = app["page"];
