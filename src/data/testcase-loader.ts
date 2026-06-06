@@ -13,9 +13,9 @@ export type TestCaseRow = {
 
 const DATA_FILE =
   process.env.ORANGEHRM_TESTCASE_FILE ??
-  "./OrangeHRM_TC_Final.xlsx";
+  "./Testcase-OrangeHRM.xlsx";
 
-const SHEETS = ["🔐 Login", "👤 User Management", "👥 Employee List"];
+const SHEETS = ["Đăng nhập", "Quản lý người dùng", "Danh sách nhân viên"];
 
 export function loadTestCases(): TestCaseRow[] {
   const wb = XLSX.readFile(DATA_FILE);
@@ -39,7 +39,7 @@ export function loadTestCases(): TestCaseRow[] {
         name: String(row[1] ?? "").trim(),
         objective: String(row[2] ?? "").trim(),
         inputRaw,
-        input: inputRaw.split("\n"),
+        input: inputRaw.split("\n").map(s => s.trim()),
         expected: String(row[5] ?? "").trim(),
         expectedStatus: String(row[7] ?? "").trim()
       });
