@@ -3,7 +3,7 @@ import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 import { loadTestCases } from "../src/data/testcase-loader";
 
 // Load ALL test cases for "Đăng nhập"
-const allTestCases = loadTestCases().filter((tc) => tc.sheet === "Đăng nhập");
+const allTestCases = loadTestCases().filter((tc) => tc.sheet === "Login");
 
 const getTC = (id: string) => allTestCases.find((tc) => tc.id === id);
 
