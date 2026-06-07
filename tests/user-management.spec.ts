@@ -17,6 +17,13 @@ type UserCaseContext = {
   testInfo: TestInfo;
 };
 
+type VisibleUserRow = {
+  employeeName: string;
+  username: string;
+  userRole: string;
+  status: string;
+};
+
 const DEFAULT_NEW_USER_PASSWORD =
   process.env.ORANGEHRM_DEFAULT_NEW_USER_PASSWORD ??
   "StrongPass123!";
@@ -131,6 +138,14 @@ async function submitUserSearch(page: any) {
   await waitForTable(page);
 }
 
+async function resetUserSearchFilters(page: any) {
+  await ensureUserFiltersVisible(page);
+  const resetButton = page.getByRole("button", { name: /Reset/i });
+  await expect(resetButton).toBeVisible({ timeout: 10000 });
+  await resetButton.click();
+  await waitForTable(page);
+}
+
 async function waitForListPage(page: any) {
   await expect(page).toHaveURL(/viewSystemUsers/, { timeout: 15000 });
   await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => { });
@@ -157,9 +172,48 @@ async function getSelectTextByLabel(page: any, label: RegExp) {
 }
 
 async function getVisibleEmployeeNames(page: any) {
-  return page.locator(".oxd-table-body .oxd-table-row .oxd-table-cell:nth-child(3)")
-    .evaluateAll((cells: Element[]) => cells.map((cell: Element) => cell.textContent?.trim() ?? "").filter(Boolean))
+  return page.locator(".oxd-table-body .oxd-table-row")
+    .evaluateAll((rows: Element[]) => rows.map((row: Element) => {
+      const cellTexts = Array.from(row.querySelectorAll(".oxd-table-cell"))
+        .map((cell) => cell.textContent?.replace(/\s+/g, " ").trim() ?? "")
+        .filter(Boolean);
+      const employeeCell = cellTexts.find((text) => /^Employee Name\s*/i.test(text)) ?? "";
+      if (employeeCell) return employeeCell.replace(/^Employee Name\s*/i, "").trim();
+      const firstValue = cellTexts.find(Boolean) ?? "";
+      return firstValue.replace(/^Employee Name\s*/i, "").trim();
+    }).filter(Boolean))
     .catch(() => [] as string[]);
+}
+
+async function getVisibleUserRows(page: any) {
+  const rows = page.locator(".oxd-table-body .oxd-table-row");
+  const hasVisibleRow = await rows.first()
+    .waitFor({ state: "visible", timeout: 10000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!hasVisibleRow) return [];
+
+  const count = await rows.count();
+  const visibleRows: VisibleUserRow[] = [];
+  for (let index = 0; index < count; index++) {
+    const cellTexts = (await rows.nth(index).locator(".oxd-table-cell").allInnerTexts())
+      .map((text: string) => text.replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const username = cellTexts[0] ?? "";
+    const userRole = cellTexts[1] ?? "";
+    const employeeName = cellTexts[2] ?? "";
+    const status = cellTexts[3] ?? "";
+    if (username) {
+      visibleRows.push({ employeeName, username, userRole, status });
+    }
+  }
+
+  return visibleRows;
+}
+
+function pickAlternativeEmployeeName(employeeNames: string[], excludedEmployeeName: string) {
+  const excluded = excludedEmployeeName.trim().toLowerCase();
+  return employeeNames.find((name) => name.trim() && name.trim().toLowerCase() !== excluded) ?? null;
 }
 
 async function fillEmployeeAutocomplete(page: any, value: string, excludedEmployeeName = "") {
@@ -169,6 +223,7 @@ async function fillEmployeeAutocomplete(page: any, value: string, excludedEmploy
     .map((term) => term.trim().toLowerCase())
     .filter(Boolean);
   const excluded = excludedEmployeeName.trim().toLowerCase();
+  const triedSuggestions = new Set<string>();
 
   for (const term of terms) {
     await empInput.fill(term);
@@ -187,6 +242,7 @@ async function fillEmployeeAutocomplete(page: any, value: string, excludedEmploy
     ).catch(() => [] as string[]);
 
     for (const selectedName of optionTexts) {
+      triedSuggestions.add(selectedName);
       if (excluded && selectedName.toLowerCase() === excluded) continue;
       if (selectedName && !/No Records Found|Searching\.\.\.\.?/i.test(selectedName)) {
         await page.locator(".oxd-autocomplete-option", { hasText: selectedName }).first().click();
@@ -197,19 +253,36 @@ async function fillEmployeeAutocomplete(page: any, value: string, excludedEmploy
     }
   }
 
-  throw new Error(`No valid Employee Name autocomplete option found for "${value}"`);
+  const currentValue = await empInput.inputValue().catch(() => "");
+  throw new Error(
+    [
+      `Employee Name autocomplete could not select a valid option for "${value}".`,
+      excluded ? `Excluded current employee: "${excludedEmployeeName}".` : "",
+      `Current input value: "${currentValue}".`,
+      `Observed suggestions: ${Array.from(triedSuggestions).join(", ") || "none"}.`,
+      `Current URL: ${page.url()}`
+    ].filter(Boolean).join(" ")
+  );
 }
 
 async function fillAnyEmployeeAutocomplete(page: any, excludedEmployeeName = "") {
   const probes = ["a", "an", "e", "n"];
+  const errors: string[] = [];
   for (const probe of probes) {
     try {
       return await fillEmployeeAutocomplete(page, probe, excludedEmployeeName);
-    } catch {
-      // try the next broad probe
+    } catch (error) {
+      errors.push(`[probe=${probe}] ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  throw new Error("No valid Employee Name autocomplete option found from live suggestions.");
+  throw new Error(
+    [
+      "Could not resolve an alternative Employee Name from live suggestions.",
+      excludedEmployeeName ? `Current employee in edit form: "${excludedEmployeeName}".` : "",
+      `Tried probes: ${probes.join(", ")}.`,
+      errors.join(" ")
+    ].filter(Boolean).join(" ")
+  );
 }
 
 async function selectEmployeeForAdd(page: any, employeeName: string, excludedEmployeeName = "") {
@@ -236,10 +309,18 @@ async function openEditFormForUser(page: any, app: OrangeHrmPage, username: stri
   await ensureAdminListReady(page, app);
   await app.searchByLabeledInput("Username", username);
   await submitUserSearch(page);
-  await expect(page.getByText(/No Records Found/i).first()).not.toBeVisible();
-  await page.locator(".oxd-table-body .oxd-table-row").first()
-    .locator(".oxd-table-cell-actions button").last()
-    .click();
+  const noRecords = page.getByText(/No Records Found/i).first();
+  if (await noRecords.isVisible().catch(() => false)) {
+    throw new Error(`Cannot open edit form because user "${username}" was not found in User Management search results.`);
+  }
+
+  const firstRow = page.locator(".oxd-table-body .oxd-table-row").first();
+  await expect(firstRow).toBeVisible({ timeout: 10000 });
+  const editButton = firstRow.locator(".oxd-table-cell-actions button").last();
+  if (!await editButton.isVisible().catch(() => false)) {
+    throw new Error(`User "${username}" row is visible, but the edit action button is not available. Current URL: ${page.url()}`);
+  }
+  await editButton.click();
   await expect(page).toHaveURL(/saveSystemUser/, { timeout: 10000 });
 }
 
@@ -247,6 +328,14 @@ async function getTableRowCount(page: any) {
   const noRecord = await page.getByText(/No Records Found/i).first().isVisible().catch(() => false);
   if (noRecord) return 0;
   return page.locator(".oxd-table-body .oxd-table-row").count();
+}
+
+async function getRecordsFoundBannerText(page: any) {
+  return page.locator(".orangehrm-horizontal-padding .oxd-text, .orangehrm-paper-container .oxd-text")
+    .filter({ hasText: /Records Found/i })
+    .first()
+    .innerText()
+    .catch(() => "");
 }
 
 async function assertAllRowsMatch(page: any, matcher: (row: any) => Promise<void>) {
@@ -284,9 +373,13 @@ async function deleteUserIfExists(page: any, app: OrangeHrmPage, username: strin
 
   if (await page.getByText(/No Records Found/i).first().isVisible().catch(() => false)) return;
 
-  await page.locator(".oxd-table-body .oxd-table-row").first()
-    .locator(".oxd-table-cell-actions button").first()
-    .click();
+  const firstRow = page.locator(".oxd-table-body .oxd-table-row").first();
+  await expect(firstRow).toBeVisible({ timeout: 10000 });
+  const deleteButton = firstRow.locator(".oxd-table-cell-actions button").first();
+  if (!await deleteButton.isVisible().catch(() => false)) {
+    throw new Error(`User "${username}" exists in search results, but the delete action button is not available. Current URL: ${page.url()}`);
+  }
+  await deleteButton.click();
   const confirmDelete = page.locator(".orangehrm-modal-footer .oxd-button--label-danger").first();
   await expect(confirmDelete).toBeVisible({ timeout: 5000 });
   await confirmDelete.click();
@@ -341,7 +434,7 @@ async function prepareCaseContext(tc: UserTestCase, app: OrangeHrmPage, testInfo
   const [loginUser = "Admin", loginPass = "admin123", ...args] = tc.input;
 
   await test.step("Precondition: login and open User Management", async () => {
-    await app.login(loginUser, loginPass);
+    await app.ensureLoggedIn(loginUser, loginPass);
     await ensureAdminListReady(page, app);
 
     const resetButton = page.getByRole("button", { name: /Reset/i });
@@ -553,53 +646,68 @@ async function runEditUserCase(context: UserCaseContext) {
       return;
 
     case "TC-U17":
-    {
-      const [
-        sourceUsername = "",
-        sourceRole = "ESS",
-        sourceStatus = "Enabled",
-        sourceEmployeeName = "Orange Test",
-        updatedUsername = `${sourceUsername}_edited`,
-        updatedRole = "Admin",
-        updatedStatus = "Disabled",
-        updatedEmployeeName = "AUTO_DIFFERENT_EMPLOYEE"
-      ] = args;
+      {
+        const [
+          sourceUsername = "",
+          sourceRole = "ESS",
+          sourceStatus = "Enabled",
+          sourceEmployeeName = "Orange Test",
+          updatedUsername = `${sourceUsername}_edited`,
+          updatedRole = "Admin",
+          updatedStatus = "Disabled",
+          updatedEmployeeName = "AUTO_DIFFERENT_EMPLOYEE"
+        ] = args;
 
-      if (updatedUsername !== sourceUsername) {
-        await deleteUserIfExists(page, app, updatedUsername);
+        if (updatedUsername !== sourceUsername) {
+          await deleteUserIfExists(page, app, updatedUsername);
+        }
+
+        await ensureAdminListReady(page, app);
+        await resetUserSearchFilters(page);
+        const visibleUsers = await getVisibleUserRows(page);
+        const sourceCandidate = visibleUsers.find((row: VisibleUserRow) => row.username === sourceUsername)
+          ?? visibleUsers.find((row: VisibleUserRow) => row.username && row.username !== "Admin" && row.username !== updatedUsername)
+          ?? visibleUsers.find((row: VisibleUserRow) => row.username && row.username !== updatedUsername);
+        if (!sourceCandidate) {
+          throw new Error("TC-U17 could not find any editable user row in User Management.");
+        }
+
+        await openEditFormForUser(page, app, sourceCandidate.username);
+
+        const currentEmployeeName = (await fieldGroupByLabel(page, /Employee Name/i).locator("input").inputValue()).trim();
+        const alternativeEmployeeName = pickAlternativeEmployeeName(
+          visibleUsers.map((row: VisibleUserRow) => row.employeeName).filter(Boolean),
+          currentEmployeeName
+        );
+        const requestedEmployeeName = /auto_different_employee/i.test(updatedEmployeeName)
+          ? alternativeEmployeeName ?? updatedEmployeeName
+          : updatedEmployeeName;
+        await selectDropdownByLabel(page, /User Role/i, updatedRole);
+        const savedEmployeeName = await selectEmployeeForAdd(page, requestedEmployeeName, currentEmployeeName);
+        await selectDropdownByLabel(page, /^Status/i, statusRegex(updatedStatus));
+        await fieldGroupByLabel(page, /Username/i).locator("input").fill(updatedUsername);
+        await page.getByRole("button", { name: /^Save$/i }).click();
+        await waitForSuccessToast(page);
+        await searchUserByUsername(page, app, updatedUsername);
+
+        const updatedRow = page.locator(".oxd-table-body .oxd-table-row").first();
+        await expect(updatedRow).toBeVisible();
+        await expect(page.getByText(/No Records Found/i).first()).not.toBeVisible();
+
+        const listedUsername = await updatedRow.locator(".oxd-table-cell").nth(1).innerText();
+        const listedRole = await updatedRow.locator(".oxd-table-cell").nth(2).innerText();
+        const listedStatus = await updatedRow.locator(".oxd-table-cell").nth(4).innerText();
+        expect(listedUsername.trim()).toBe(updatedUsername);
+        expect(listedRole.trim()).toMatch(new RegExp(updatedRole, "i"));
+        expect(listedStatus.trim()).toMatch(statusRegex(updatedStatus));
+
+        await openEditFormForUser(page, app, updatedUsername);
+        await expect(fieldGroupByLabel(page, /Username/i).locator("input")).toHaveValue(updatedUsername);
+        await expect(fieldGroupByLabel(page, /Employee Name/i).locator("input")).toHaveValue(savedEmployeeName);
+        expect(await getSelectTextByLabel(page, /User Role/i)).toMatch(new RegExp(updatedRole, "i"));
+        expect(await getSelectTextByLabel(page, /^Status/i)).toMatch(statusRegex(updatedStatus));
+        return;
       }
-
-      await addUserFromCase(page, app, sourceUsername, sourceRole, sourceStatus, sourceEmployeeName);
-      await waitForSuccessToast(page);
-      await openEditFormForUser(page, app, sourceUsername);
-
-      const currentEmployeeName = (await fieldGroupByLabel(page, /Employee Name/i).locator("input").inputValue()).trim();
-      await selectDropdownByLabel(page, /User Role/i, updatedRole);
-      const savedEmployeeName = await selectEmployeeForAdd(page, updatedEmployeeName, currentEmployeeName);
-      await selectDropdownByLabel(page, /^Status/i, statusRegex(updatedStatus));
-      await fieldGroupByLabel(page, /Username/i).locator("input").fill(updatedUsername);
-      await page.getByRole("button", { name: /^Save$/i }).click();
-      await waitForSuccessToast(page);
-      await searchUserByUsername(page, app, updatedUsername);
-
-      const updatedRow = page.locator(".oxd-table-body .oxd-table-row").first();
-      await expect(updatedRow).toBeVisible();
-      await expect(page.getByText(/No Records Found/i).first()).not.toBeVisible();
-
-      const listedUsername = await updatedRow.locator(".oxd-table-cell").nth(1).innerText();
-      const listedRole = await updatedRow.locator(".oxd-table-cell").nth(2).innerText();
-      const listedStatus = await updatedRow.locator(".oxd-table-cell").nth(4).innerText();
-      expect(listedUsername.trim()).toBe(updatedUsername);
-      expect(listedRole.trim()).toMatch(new RegExp(updatedRole, "i"));
-      expect(listedStatus.trim()).toMatch(statusRegex(updatedStatus));
-
-      await openEditFormForUser(page, app, updatedUsername);
-      await expect(fieldGroupByLabel(page, /Username/i).locator("input")).toHaveValue(updatedUsername);
-      await expect(fieldGroupByLabel(page, /Employee Name/i).locator("input")).toHaveValue(savedEmployeeName);
-      expect(await getSelectTextByLabel(page, /User Role/i)).toMatch(new RegExp(updatedRole, "i"));
-      expect(await getSelectTextByLabel(page, /^Status/i)).toMatch(statusRegex(updatedStatus));
-      return;
-    }
 
     default:
       throw new Error(`Unhandled edit case: ${tc.id}`);

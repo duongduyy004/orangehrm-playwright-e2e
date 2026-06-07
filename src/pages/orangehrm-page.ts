@@ -3,6 +3,14 @@ import { expect, Page } from "@playwright/test";
 export class OrangeHrmPage {
   constructor(private readonly page: Page) {}
 
+  private getDefaultAdminUsername() {
+    return process.env.ORANGEHRM_ADMIN_USERNAME ?? "Admin";
+  }
+
+  private getDefaultAdminPassword() {
+    return process.env.ORANGEHRM_ADMIN_PASSWORD ?? "admin123";
+  }
+
   private async waitForSpinnerToClear(timeout = 15000) {
     await this.page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout }).catch(() => {});
   }
@@ -16,6 +24,20 @@ export class OrangeHrmPage {
       const tableContainer = document.querySelector(".orangehrm-paper-container, .oxd-table-filter-header");
       return addButton || usernameLabel || Boolean(tableContainer);
     }, { timeout }).catch(() => {});
+  }
+
+  private async gotoWithRetry(url: string, waitUntil: "commit" | "domcontentloaded" = "domcontentloaded", timeout = 45000) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this.page.goto(url, { waitUntil, timeout });
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/ERR_ABORTED/i.test(message) || attempt === 2) throw error;
+        await this.page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+        await this.page.waitForTimeout(500);
+      }
+    }
   }
 
   private async hasVisibleAdminUsersPage() {
@@ -42,6 +64,20 @@ export class OrangeHrmPage {
     return /\/admin\/viewSystemUsers/i.test(this.page.url());
   }
 
+  private isEmployeeListUrl() {
+    return /\/pim\/viewEmployeeList/i.test(this.page.url());
+  }
+
+  private isLoginUrl() {
+    return /\/auth\/login/i.test(this.page.url());
+  }
+
+  private async isSessionExpiredPage() {
+    if (this.isLoginUrl()) return true;
+    const sessionExpiredBanner = this.page.getByText(/Session Expired/i).first();
+    return sessionExpiredBanner.isVisible().catch(() => false);
+  }
+
   async ensureAdminUsersReady() {
     if (!this.isAdminUsersUrl()) {
       await this.openAdminUsers();
@@ -57,9 +93,9 @@ export class OrangeHrmPage {
 
   async gotoLogin() {
     try {
-      await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 });
+      await this.gotoWithRetry("/web/index.php/auth/login");
     } catch (e) {
-      await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 });
+      await this.gotoWithRetry("/web/index.php/auth/login");
     }
 
     const loginVisible = await this.page.locator("button[type='submit']")
@@ -69,9 +105,19 @@ export class OrangeHrmPage {
 
     if (!loginVisible && this.page.url().includes("/dashboard")) {
       await this.logoutIfLoggedIn();
-      await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+      await this.gotoWithRetry("/web/index.php/auth/login").catch(() => {});
       await this.page.locator("input[name='username']").waitFor({ state: "visible", timeout: 15000 });
     }
+  }
+
+  async ensureLoggedIn(username: string, password: string) {
+    const userMenu = this.page.locator(".oxd-userdropdown-tab");
+    if (await userMenu.isVisible().catch(() => false)) return;
+
+    await this.gotoWithRetry("/web/index.php/dashboard/index").catch(() => {});
+    if (await userMenu.isVisible().catch(() => false)) return;
+
+    await this.login(username, password);
   }
 
   async login(username: string, password: string, expectSuccess = true) {
@@ -84,7 +130,7 @@ export class OrangeHrmPage {
         .then(() => true)
         .catch(() => false);
       if (!loginReady) {
-        await this.page.goto("/web/index.php/auth/login", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+        await this.gotoWithRetry("/web/index.php/auth/login").catch(() => {});
         continue;
       }
       await usernameInput.fill(username);
@@ -133,7 +179,11 @@ export class OrangeHrmPage {
     }
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      await this.page.goto("/web/index.php/admin/viewSystemUsers", { waitUntil: "domcontentloaded", timeout: 45000 });
+      await this.gotoWithRetry("/web/index.php/admin/viewSystemUsers");
+      if (await this.isSessionExpiredPage()) {
+        await this.login(this.getDefaultAdminUsername(), this.getDefaultAdminPassword());
+        await this.gotoWithRetry("/web/index.php/admin/viewSystemUsers");
+      }
       await expect(this.page).toHaveURL(/admin\/viewSystemUsers/, { timeout: 15000 });
       await this.waitForSpinnerToClear();
       await this.waitForAdminUsersContent();
@@ -157,7 +207,7 @@ export class OrangeHrmPage {
       if (await this.hasVisibleAdminUsersPage()) return;
     }
 
-    throw new Error("Admin User Management page did not render visible controls after 3 navigation attempts.");
+    throw new Error(`Admin User Management page did not render visible controls after 3 navigation attempts. Current URL: ${this.page.url()}`);
   }
 
   async ensureAdminUserFiltersVisible() {
@@ -181,13 +231,19 @@ export class OrangeHrmPage {
   }
 
   async openEmployeeList() {
+    if (this.isEmployeeListUrl()) {
+      await this.page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+      const searchVisible = await this.page.locator("button[type='submit']").isVisible().catch(() => false);
+      if (searchVisible) return;
+    }
+
     // Thử click link PIM trên sidebar; nếu không tìm thấy (chậm), navigate trực tiếp
     const pimLink = this.page.locator("a[href*='viewPimModule'], a[href*='pim/viewEmployeeList']").first();
     const isVisible = await pimLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (isVisible) {
       await pimLink.click();
     } else {
-      await this.page.goto("/web/index.php/pim/viewEmployeeList", { waitUntil: "commit", timeout: 45000 });
+      await this.gotoWithRetry("/web/index.php/pim/viewEmployeeList", "commit");
     }
     await expect(this.page).toHaveURL(/pim\/viewEmployeeList/, { timeout: 20000 });
     await this.page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});

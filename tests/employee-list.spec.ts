@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../src/fixtures/admin-auth";
 import { loadTestCases } from "../src/data/testcase-loader";
 import { registerWorkbookStatusSync } from "../src/data/testcase-status-updater";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
@@ -123,7 +123,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
   const page = app["page"];
   const [loginUser = "Admin", loginPass = "admin123", a2 = "", a3 = "", a4 = "", a5 = ""] = tc.input;
 
-  await app.login(loginUser, loginPass);
+  await app.ensureLoggedIn(loginUser, loginPass);
   await app.openEmployeeList();
   await waitForListPage(page);
 

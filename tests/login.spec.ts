@@ -13,6 +13,18 @@ const BASE_URL = "https://opensource-demo.orangehrmlive.com";
 
 test.describe.configure({ timeout: 60000 });
 
+async function waitForLoginAttemptToSettle(page: any) {
+  const authError = page.locator(".oxd-alert-content-text, .oxd-input-field-error-message").first();
+  await expect.poll(async () => {
+    if (/\/dashboard/i.test(page.url())) return "dashboard";
+    if (await authError.isVisible().catch(() => false)) return "error";
+    return "pending";
+  }, {
+    timeout: 8000,
+    intervals: [200, 400, 800]
+  }).not.toBe("pending");
+}
+
 test.describe("Đăng nhập cơ bản & Kiểm tra trường bắt buộc", () => {
   const tc01 = getTC("TC-L01");
   if (tc01) {
@@ -209,7 +221,7 @@ test.describe("Bảo mật và phiên làm việc", () => {
       await page.getByRole("textbox", { name: "Username" }).fill(tc13.input[0] || "OR '1'='1'--");
       await page.getByRole("textbox", { name: "Password" }).fill(tc13.input[1] || "batkymatkhau");
       await page.getByRole("button", { name: "Login" }).click();
-      await page.waitForTimeout(2000);
+      await waitForLoginAttemptToSettle(page);
 
       await expect(page).not.toHaveURL(/dashboard/);
       const content = await page.content();
@@ -231,7 +243,7 @@ test.describe("Bảo mật và phiên làm việc", () => {
       await page.getByRole("textbox", { name: "Username" }).fill(tc14.input[0] || "<script>alert('xss')</script>");
       await page.getByRole("textbox", { name: "Password" }).fill(tc14.input[1] || "batkymatkhau");
       await page.getByRole("button", { name: "Login" }).click();
-      await page.waitForTimeout(1500);
+      await waitForLoginAttemptToSettle(page);
 
       expect(dialogFired).toBe(false);
     });
@@ -248,8 +260,7 @@ test.describe("Kiểm tra xử lý dữ liệu", () => {
       await page.getByRole("textbox", { name: "Username" }).fill(tc15.input[0] || " Admin ");
       await page.getByRole("textbox", { name: "Password" }).fill(tc15.input[1] || "admin123");
       await page.getByRole("button", { name: "Login" }).click();
-      
-      await page.waitForTimeout(2000);
+      await waitForLoginAttemptToSettle(page);
       
       const isOnDashboard = page.url().includes("dashboard");
       const hasError = await page.locator(".oxd-alert-content-text").isVisible().catch(() => false);
