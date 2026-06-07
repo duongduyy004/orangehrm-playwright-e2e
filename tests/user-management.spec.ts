@@ -24,6 +24,13 @@ type VisibleUserRow = {
   status: string;
 };
 
+type UserSeedData = {
+  username: string;
+  role: string;
+  status: string;
+  employeeName: string;
+};
+
 const DEFAULT_NEW_USER_PASSWORD =
   process.env.ORANGEHRM_DEFAULT_NEW_USER_PASSWORD ??
   "StrongPass123!";
@@ -50,6 +57,35 @@ function groupCasesBySection(cases: UserTestCase[]) {
   }
 
   return groups;
+}
+
+function getUserSeedDataFromSheet(username: string): UserSeedData | null {
+  const normalizedUsername = username.trim().toLowerCase();
+  if (!normalizedUsername) return null;
+
+  for (const tc of userCases) {
+    const candidateUsername = (tc.input[2] ?? "").trim();
+    const role = (tc.input[3] ?? "").trim();
+    const status = (tc.input[4] ?? "").trim();
+    const employeeName = (tc.input[5] ?? "").trim();
+
+    if (
+      candidateUsername &&
+      candidateUsername.toLowerCase() === normalizedUsername &&
+      role &&
+      status &&
+      employeeName
+    ) {
+      return {
+        username: candidateUsername,
+        role,
+        status,
+        employeeName
+      };
+    }
+  }
+
+  return null;
 }
 
 function fieldGroupByLabel(page: any, label: RegExp) {
@@ -662,17 +698,13 @@ async function runEditUserCase(context: UserCaseContext) {
           await deleteUserIfExists(page, app, updatedUsername);
         }
 
+        await addUserFromCase(page, app, sourceUsername, sourceRole, sourceStatus, sourceEmployeeName);
+        await waitForSuccessToast(page);
         await ensureAdminListReady(page, app);
         await resetUserSearchFilters(page);
         const visibleUsers = await getVisibleUserRows(page);
-        const sourceCandidate = visibleUsers.find((row: VisibleUserRow) => row.username === sourceUsername)
-          ?? visibleUsers.find((row: VisibleUserRow) => row.username && row.username !== "Admin" && row.username !== updatedUsername)
-          ?? visibleUsers.find((row: VisibleUserRow) => row.username && row.username !== updatedUsername);
-        if (!sourceCandidate) {
-          throw new Error("TC-U17 could not find any editable user row in User Management.");
-        }
 
-        await openEditFormForUser(page, app, sourceCandidate.username);
+        await openEditFormForUser(page, app, sourceUsername);
 
         const currentEmployeeName = (await fieldGroupByLabel(page, /Employee Name/i).locator("input").inputValue()).trim();
         const alternativeEmployeeName = pickAlternativeEmployeeName(
@@ -720,7 +752,17 @@ async function runDeleteUserCase(context: UserCaseContext) {
 
   switch (tc.id) {
     case "TC-U18":
-      await ensureUserExists(page, app, username);
+      {
+        const seedData = getUserSeedDataFromSheet(username);
+        await ensureUserExists(
+          page,
+          app,
+          username,
+          seedData?.role ?? "ESS",
+          seedData?.status ?? "Enabled",
+          seedData?.employeeName ?? "Orange Test"
+        );
+      }
       await searchUserByUsername(page, app, username);
       await page.locator(".oxd-table-body .oxd-table-row").first()
         .locator(".oxd-checkbox-wrapper")
