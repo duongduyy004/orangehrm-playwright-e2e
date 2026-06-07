@@ -6,29 +6,11 @@ import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Employee List") || tc.sheet.includes("Danh sách nhân viên"));
 registerWorkbookStatusSync(test, testCases);
 
-// Đảm bảo luôn có test case TC-E23 (Tìm kiếm với khoảng trắng)
-if (!testCases.some(tc => tc.id === "TC-E23")) {
-  testCases.push({
-    sheet: "Employee List",
-    sheetName: "Danh sách nhân viên",
-    group: "Xem và tìm kiếm",
-    rowNumber: 0,
-    id: "TC-E23",
-    requirement: "",
-    name: "Tìm kiếm với khoảng trắng",
-    objective: "Tìm kiếm bằng khoảng trắng trả về không tìm thấy bản ghi nào",
-    inputRaw: "Admin\nadmin123\n   ",
-    input: ["Admin", "admin123", "   "],
-    expected: "Hiển thị thông báo không tìm thấy bản ghi nào (No Records Found)",
-    expectedStatus: "Đạt"
-  });
-}
-
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Chờ spinner biến mất */
 async function waitForSpinner(page: any) {
-  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => { });
 }
 
 /** Chờ trang danh sách employee load xong (có nút Search hiển thị) */
@@ -66,7 +48,7 @@ async function fillAddEmployeeForm(
   // Điền First Name, Middle Name và Last Name theo placeholder
   if (firstName) await page.getByPlaceholder("First Name").fill(firstName);
   if (middleName) await page.getByPlaceholder("Middle Name").fill(middleName);
-  if (lastName)  await page.getByPlaceholder("Last Name").fill(lastName);
+  if (lastName) await page.getByPlaceholder("Last Name").fill(lastName);
 
   // Điền Employee ID nếu có (input trong .oxd-grid-2, clear trước khi fill)
   if (employeeId) {
@@ -98,7 +80,7 @@ async function deleteFirstRow(page: any) {
   await page.locator(".orangehrm-modal-footer")
     .getByRole("button", { name: /Yes, Delete|是|确定/i }).click();
   await page.getByText(/Successfully Deleted|Success|成功/i).first()
-    .waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
+    .waitFor({ state: "visible", timeout: 8000 }).catch(() => { });
 }
 
 /** Xóa employee theo tên nếu tồn tại (dùng để clean state trước test) */
@@ -230,7 +212,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E23": {
+    case "TC-E08": {
       // Tìm kiếm với khoảng trắng (tham chiếu TC-U08)
       await app.searchByLabeledInput("Employee Name", a2 || "   ");
       await page.locator("button[type='submit']").click();
@@ -245,7 +227,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
     }
 
     // ── Nhóm 2: Thêm nhân viên ────────────────────────────────────────
-    case "TC-E08": {
+    case "TC-E09": {
       // Happy path: thêm employee thành công
       const [fn, ln] = [a2 || "Nguyen", a3 || "TieuHoc"];
       await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
@@ -261,7 +243,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E09": {
+    case "TC-E10": {
       // BUG BG53: Nhân viên mới không hiện trong list ngay lập tức
       // Bước 1: Ghi nhận số lượng records hiện tại
       const countBefore = await getRecordCount(page);
@@ -280,7 +262,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
 
       // Bước 4: Kiểm tra xem tổng số records có tăng lên 1 hay không
       const countAfter = await getRecordCount(page);
-      
+
       if (countAfter !== countBefore + 1) {
         throw new Error(`BUG BG53: Nhân viên mới "${fn} ${ln}" không hiển thị trong danh sách mặc định sau khi thêm thành công. Số lượng không tăng (trước: ${countBefore}, sau: ${countAfter}).`);
       }
@@ -295,7 +277,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E10": {
+    case "TC-E11": {
       // Bỏ trống Họ (Last Name) → phải có lỗi Required
       await fillAddEmployeeForm(page, a2 || "Nguyen", "");
       await page.locator("button[type='submit']").click();
@@ -304,7 +286,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E11": {
+    case "TC-E12": {
       // Bỏ trống Tên (First Name) → phải có lỗi Required
       await fillAddEmployeeForm(page, "", a3 || "TieuHoc");
       await page.locator("button[type='submit']").click();
@@ -313,27 +295,27 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E12": {
+    case "TC-E13": {
       // Nhập Employee ID trùng lặp
       const existingId = await getFirstEmployeeId(page);
       expect(existingId.length).toBeGreaterThan(0);
 
       await fillAddEmployeeForm(page, a2 || "Trung", a3 || "MaSo", existingId);
-      
+
       // Kích hoạt validation bằng cách click ra label Employee Id để blur input
       await page.locator("label").filter({ hasText: "Employee Id" }).click();
-      
+
       // Đợi validation error text "Employee Id already exists" xuất hiện
       const errLocator = page.locator(".oxd-input-field-error-message").filter({ hasText: /exists/i });
       const hasErrorVisible = await errLocator.first().isVisible({ timeout: 5000 }).catch(() => false);
-      
+
       await page.locator("button[type='submit']").click();
 
       const successLocator = page.locator(".oxd-toast--success, .oxd-toast-content");
       try {
         await successLocator.first().waitFor({ state: "visible", timeout: 7000 });
       } catch { /* ignore */ }
-      
+
       const hasSuccess = await successLocator.first().isVisible().catch(() => false);
 
       if (hasSuccess && !hasErrorVisible) {
@@ -341,12 +323,12 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       } else if (hasSuccess && hasErrorVisible) {
         throw new Error(`BUG BG54: Dù có báo lỗi đỏ "Employee Id already exists", hệ thống vẫn lưu record thành công.`);
       }
-      
+
       expect(hasErrorVisible, `Không có error message khi dùng Employee ID trùng "${existingId}"`).toBe(true);
       break;
     }
 
-    case "TC-E13": {
+    case "TC-E14": {
       // Tên Unicode tiếng Việt
       const [fn, ln] = [a2 || "Nguyễn", a3 || "Văn An"];
       await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
@@ -367,7 +349,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E14": {
+    case "TC-E15": {
       // Thêm nhân viên có tên đệm
       const [fn, ln, id, mn] = [a2 || "Le", a3 || "Van Anh", a4 || "", a5 || "Hoang"];
       await deleteEmployeeIfExists(page, app, `${fn} ${mn} ${ln}`);
@@ -380,15 +362,15 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
     }
 
     // ── Nhóm 3: Chỉnh sửa & xóa ──────────────────────────────────────
-    case "TC-E15": {
+    case "TC-E16": {
       const uniqueFn = `Nguyen${Date.now()}`;
       const uniqueLn = a3 || "TieuHoc";
       const newLastName = a3 || "TenMoi";
-      
+
       await fillAddEmployeeForm(page, uniqueFn, uniqueLn);
       await page.locator("button[type='submit']").click();
       await page.locator(".oxd-toast--success").first().waitFor({ state: "visible", timeout: 15000 });
-      
+
       // Quay lại list và tìm chính user unique đó
       await app.openEmployeeList();
       await waitForListPage(page);
@@ -421,15 +403,15 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E16": {
+    case "TC-E17": {
       const uniqueFn = `Nguyen${Date.now()}`;
       const uniqueLn = a3 || "TenMoi";
       const newLastName = a3 || "TenSua2";
-      
+
       await fillAddEmployeeForm(page, uniqueFn, uniqueLn);
       await page.locator("button[type='submit']").click();
       await page.locator(".oxd-toast--success").first().waitFor({ state: "visible", timeout: 15000 });
-      
+
       await app.openEmployeeList();
       await waitForListPage(page);
       await app.searchByLabeledInput("Employee Name", uniqueFn);
@@ -458,7 +440,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
 
       // Verify persist sau reload
       await page.reload();
-      await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => {});
+      await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 15000 }).catch(() => { });
       await expect(page.getByPlaceholder("Last Name")).not.toHaveValue("", { timeout: 15000 });
       const savedValue = await page.getByPlaceholder("Last Name").inputValue();
       if (savedValue !== newLastName) {
@@ -469,7 +451,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E17": {
+    case "TC-E18": {
       // Xóa employee bằng icon trash ở cột Actions (hình 4)
       const searchName = a2 || "Temp Delete";
       await app.searchByLabeledInput("Employee Name", searchName);
@@ -478,7 +460,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
 
       const noRecords = page.getByText(/No Records Found/i).first();
       const firstRow = page.locator(".oxd-table-body .oxd-table-row").first();
-      
+
       const isNoRecords = await Promise.race([
         noRecords.waitFor({ state: "visible" }).then(() => true),
         firstRow.waitFor({ state: "visible" }).then(() => false)
@@ -504,7 +486,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E18": {
+    case "TC-E19": {
       // Nút "Delete Selected" không hiển thị khi chưa chọn checkbox nào
       const deleteBtn = page.locator(".orangehrm-header-container button", { hasText: /Delete Selected/i });
       await expect(deleteBtn).not.toBeVisible();
@@ -512,7 +494,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
     }
 
     // ── Nhóm 4: Tính toàn vẹn dữ liệu ────────────────────────────────
-    case "TC-E19": {
+    case "TC-E20": {
       // Search ngay sau khi thêm
       const [fn, ln] = [a2 || "TimKiem", a3 || "NgayLap"];
       await deleteEmployeeIfExists(page, app, `${fn} ${ln}`);
@@ -532,10 +514,10 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E20": {
+    case "TC-E21": {
       const fn = `DemSo${Date.now()}`;
       const ln = a3 || "ThemMoi";
-      
+
       await fillAddEmployeeForm(page, fn, ln);
       await page.locator("button[type='submit']").click();
       await page.locator(".oxd-toast--success").first()
@@ -546,12 +528,12 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await app.searchByLabeledInput("Employee Name", fn);
       await page.locator("button[type='submit']").click();
       await waitForSpinner(page);
-      
+
       await expect(page.locator(".oxd-table-body .oxd-table-row").first()).toBeVisible({ timeout: 10000 });
       break;
     }
 
-    case "TC-E21": {
+    case "TC-E22": {
       // Count giảm sau khi xóa
       const name = a2 || "DemSo ThemMoi";
       const [namePart0, ...rest] = name.split(" ");
@@ -586,7 +568,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       break;
     }
 
-    case "TC-E22": {
+    case "TC-E23": {
       // Phân trang – không duplicate records
       await page.locator("button[type='submit']").click();
       await waitForSpinner(page);
@@ -619,44 +601,42 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
   }
 }
 
-test.describe("OrangeHRM Employee List E2E", () => {
-  test.describe("Nhóm 1: Xem & tìm kiếm", () => {
-    const groupCases = testCases.filter((tc) => ["TC-E01", "TC-E02", "TC-E03", "TC-E04", "TC-E05", "TC-E06", "TC-E07", "TC-E23"].includes(tc.id));
-    for (const tc of groupCases) {
-      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
-        const app = new OrangeHrmPage(page);
-        await runEmployeeCase(tc, app);
-      });
-    }
-  });
+test.describe("Xem & tìm kiếm", () => {
+  const groupCases = testCases.filter((tc) => ["TC-E01", "TC-E02", "TC-E03", "TC-E04", "TC-E05", "TC-E06", "TC-E07", "TC-E08"].includes(tc.id));
+  for (const tc of groupCases) {
+    test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+      const app = new OrangeHrmPage(page);
+      await runEmployeeCase(tc, app);
+    });
+  }
+});
 
-  test.describe("Nhóm 2: Thêm nhân viên", () => {
-    const groupCases = testCases.filter((tc) => ["TC-E08", "TC-E09", "TC-E10", "TC-E11", "TC-E12", "TC-E13", "TC-E14"].includes(tc.id));
-    for (const tc of groupCases) {
-      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
-        const app = new OrangeHrmPage(page);
-        await runEmployeeCase(tc, app);
-      });
-    }
-  });
+test.describe("Thêm nhân viên", () => {
+  const groupCases = testCases.filter((tc) => ["TC-E09", "TC-E10", "TC-E11", "TC-E12", "TC-E13", "TC-E14", "TC-E15"].includes(tc.id));
+  for (const tc of groupCases) {
+    test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+      const app = new OrangeHrmPage(page);
+      await runEmployeeCase(tc, app);
+    });
+  }
+});
 
-  test.describe("Nhóm 3: Chỉnh sửa & xóa", () => {
-    const groupCases = testCases.filter((tc) => ["TC-E15", "TC-E16", "TC-E17", "TC-E18"].includes(tc.id));
-    for (const tc of groupCases) {
-      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
-        const app = new OrangeHrmPage(page);
-        await runEmployeeCase(tc, app);
-      });
-    }
-  });
+test.describe("Chỉnh sửa & xóa", () => {
+  const groupCases = testCases.filter((tc) => ["TC-E16", "TC-E17", "TC-E18", "TC-E19"].includes(tc.id));
+  for (const tc of groupCases) {
+    test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+      const app = new OrangeHrmPage(page);
+      await runEmployeeCase(tc, app);
+    });
+  }
+});
 
-  test.describe("Nhóm 4: Tính toàn vẹn dữ liệu", () => {
-    const groupCases = testCases.filter((tc) => ["TC-E19", "TC-E20", "TC-E21", "TC-E22"].includes(tc.id));
-    for (const tc of groupCases) {
-      test(`${tc.id} | ${tc.name}`, async ({ page }) => {
-        const app = new OrangeHrmPage(page);
-        await runEmployeeCase(tc, app);
-      });
-    }
-  });
+test.describe("Tính toàn vẹn dữ liệu", () => {
+  const groupCases = testCases.filter((tc) => ["TC-E20", "TC-E21", "TC-E22", "TC-E23"].includes(tc.id));
+  for (const tc of groupCases) {
+    test(`${tc.id} | ${tc.name}`, async ({ page }) => {
+      const app = new OrangeHrmPage(page);
+      await runEmployeeCase(tc, app);
+    });
+  }
 });

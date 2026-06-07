@@ -22,7 +22,7 @@ export const DATA_FILE =
 const SHEET_DEFINITIONS = [
   { sheet: "Login", names: ["Đăng nhập", "🔐 Login"] },
   { sheet: "User Management", names: ["Quản lý người dùng", "👤 User Management"] },
-  { sheet: "Employee List", names: ["Danh sách nhân viên", "👥 Employee List"] }
+  { sheet: "Employee List", names: ["Danh sách nhân viên", "Quản lý nhân viên", "👥 Employee List"] }
 ];
 
 function normalizeTestCaseId(rawId: string) {
