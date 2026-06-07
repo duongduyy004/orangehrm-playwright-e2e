@@ -200,8 +200,11 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       };
 
       const asc = await getCellTexts();
-      const ascSorted = [...asc].sort((a, b) => a.localeCompare(b));
-      expect(asc).toEqual(ascSorted);
+      // OrangeHRM chỉ sort theo phần First Name, và không phân biệt hoa thường.
+      // Nếu 2 records có cùng First Name, thứ tự của chúng có thể tùy ý.
+      const ascFirstNames = asc.map(name => name.split(" ")[0].toLowerCase());
+      const ascSorted = [...ascFirstNames].sort((a, b) => a.localeCompare(b));
+      expect(ascFirstNames).toEqual(ascSorted);
 
       // Mở lại dropdown → chọn Descending
       await firstNameHeader.locator(".oxd-table-header-sort").click();
@@ -210,8 +213,9 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await waitForSpinner(page);
 
       const desc = await getCellTexts();
-      const descSorted = [...desc].sort((a, b) => b.localeCompare(a));
-      expect(desc).toEqual(descSorted);
+      const descFirstNames = desc.map(name => name.split(" ")[0].toLowerCase());
+      const descSorted = [...descFirstNames].sort((a, b) => b.localeCompare(a));
+      expect(descFirstNames).toEqual(descSorted);
       break;
     }
 
@@ -279,6 +283,13 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
         throw new Error(`BUG BG53: Nhân viên mới "${fn} ${ln}" không hiển thị trong danh sách mặc định sau khi thêm thành công. Số lượng không tăng (trước: ${countBefore}, sau: ${countAfter}).`);
       }
       expect(countAfter).toBe(countBefore + 1);
+
+      // Bước 5: Kiểm tra xem nhân viên mới có hiển thị trong lưới danh sách không
+      const isVisibleInGrid = await page.locator(".oxd-table-body").getByText(fn).first().isVisible().catch(() => false);
+      if (!isVisibleInGrid) {
+        throw new Error(`BUG BG53: Nhân viên mới "${fn} ${ln}" làm tăng số đếm nhưng không hiển thị trong bảng dữ liệu mặc định.`);
+      }
+      expect(isVisibleInGrid).toBe(true);
       break;
     }
 
@@ -458,21 +469,31 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
 
     case "TC-E17": {
       // Xóa employee bằng icon trash ở cột Actions (hình 4)
-      await app.searchByLabeledInput("Employee Name", a2);
+      const searchName = a2 || "Temp Delete";
+      await app.searchByLabeledInput("Employee Name", searchName);
       await page.locator("button[type='submit']").click();
       await waitForSpinner(page);
 
-      if (await page.getByText(/No Records Found/i).first().isVisible().catch(() => false)) {
-        const parts = a2.split(" ");
+      const noRecords = page.getByText(/No Records Found/i).first();
+      const firstRow = page.locator(".oxd-table-body .oxd-table-row").first();
+      
+      const isNoRecords = await Promise.race([
+        noRecords.waitFor({ state: "visible" }).then(() => true),
+        firstRow.waitFor({ state: "visible" }).then(() => false)
+      ]).catch(() => false);
+
+      if (isNoRecords) {
+        const parts = searchName.split(" ");
         await fillAddEmployeeForm(page, parts[0] || "Temp", parts[1] || "Delete");
         await page.locator("button[type='submit']").click();
         await page.getByText(/Successfully Saved|Success/i).first()
           .waitFor({ state: "visible", timeout: 15000 });
         await app.openEmployeeList();
         await waitForListPage(page);
-        await app.searchByLabeledInput("Employee Name", a2);
+        await app.searchByLabeledInput("Employee Name", searchName);
         await page.locator("button[type='submit']").click();
         await waitForSpinner(page);
+        await firstRow.waitFor({ state: "visible", timeout: 15000 });
       }
 
       await deleteFirstRow(page);
