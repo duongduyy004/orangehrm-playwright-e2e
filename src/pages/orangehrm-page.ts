@@ -74,11 +74,11 @@ export class OrangeHrmPage {
     }
   }
 
-  async login(username: string, password: string) {
+  async login(username: string, password: string, expectSuccess = true) {
     await this.gotoLogin();
     let lastError = "";
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < (expectSuccess ? 3 : 1); attempt++) {
       const usernameInput = this.page.locator("input[name='username']");
       const loginReady = await usernameInput.waitFor({ state: "visible", timeout: 20000 })
         .then(() => true)
@@ -90,6 +90,10 @@ export class OrangeHrmPage {
       await usernameInput.fill(username);
       await this.page.locator("input[name='password']").fill(password);
       await this.page.locator("button[type='submit']").click();
+
+      if (!expectSuccess) {
+        return;
+      }
 
       const reachedDashboard = await this.page.waitForURL(/dashboard/i, { timeout: 20000 })
         .then(() => true)

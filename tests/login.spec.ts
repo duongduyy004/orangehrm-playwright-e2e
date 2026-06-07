@@ -28,7 +28,7 @@ test.describe("Đăng nhập cơ bản & Kiểm tra trường bắt buộc", () 
     test(`${tc02.id} | ${tc02.name}`, async ({ page }) => {
       const app = new OrangeHrmPage(page);
       await app.gotoLogin();
-      await app.login(tc02.input[0] || "Admin", tc02.input[1] || "MatKhauSai123");
+      await app.login(tc02.input[0] || "Admin", tc02.input[1] || "MatKhauSai123", false);
       await expect(page.locator(".oxd-alert-content-text")).toBeVisible({ timeout: 8000 });
       await expect(page).not.toHaveURL(/dashboard/);
     });
@@ -39,7 +39,7 @@ test.describe("Đăng nhập cơ bản & Kiểm tra trường bắt buộc", () 
     test(`${tc03.id} | ${tc03.name}`, async ({ page }) => {
       const app = new OrangeHrmPage(page);
       await app.gotoLogin();
-      await app.login(tc03.input[0] || "tai_khoan_gia", tc03.input[1] || "batkymatkhau");
+      await app.login(tc03.input[0] || "tai_khoan_gia", tc03.input[1] || "batkymatkhau", false);
       await expect(page.locator(".oxd-alert-content-text")).toBeVisible({ timeout: 8000 });
       await expect(page).not.toHaveURL(/dashboard/);
       const msg = await page.locator(".oxd-alert-content-text").innerText();
