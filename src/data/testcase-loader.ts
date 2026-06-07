@@ -15,7 +15,7 @@ export type TestCaseRow = {
   expectedStatus: string;
 };
 
-const DATA_FILE =
+export const DATA_FILE =
   process.env.ORANGEHRM_TESTCASE_FILE ??
   "./Testcase-OrangeHRM.xlsx";
 

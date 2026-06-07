@@ -1,5 +1,6 @@
 import { expect, test, type TestInfo } from "@playwright/test";
 import { loadTestCases, type TestCaseRow } from "../src/data/testcase-loader";
+import { registerWorkbookStatusSync } from "../src/data/testcase-status-updater";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 
 type UserTestCase = TestCaseRow & {
@@ -23,6 +24,7 @@ const DEFAULT_NEW_USER_PASSWORD =
 const userCases = loadTestCases()
   .filter((tc): tc is UserTestCase => tc.sheet === "User Management")
   .sort((left, right) => getCaseNumber(left.id) - getCaseNumber(right.id));
+registerWorkbookStatusSync(test, userCases);
 
 const groupedUserCases = groupCasesBySection(userCases);
 
@@ -54,6 +56,7 @@ function statusRegex(status: string) {
 
 async function attachFailureContext(context: UserCaseContext, error: unknown) {
   const { page, tc, testInfo } = context;
+  const currentUrl = page.isClosed?.() ? "page-closed" : page.url();
   const body = JSON.stringify({
     id: tc.id,
     name: tc.name,
@@ -62,7 +65,7 @@ async function attachFailureContext(context: UserCaseContext, error: unknown) {
     input: tc.input,
     expected: tc.expected,
     expectedStatus: tc.expectedStatus,
-    url: page.url(),
+    url: currentUrl,
     error: error instanceof Error ? error.message : String(error)
   }, null, 2);
 
@@ -71,10 +74,21 @@ async function attachFailureContext(context: UserCaseContext, error: unknown) {
     contentType: "application/json"
   });
 
-  await testInfo.attach(`${tc.id}-screenshot`, {
-    body: await page.screenshot({ fullPage: true }),
-    contentType: "image/png"
-  });
+  try {
+    if (page.isClosed?.()) return;
+    const screenshot = await page.screenshot({ fullPage: true });
+    await testInfo.attach(`${tc.id}-screenshot`, {
+      body: screenshot,
+      contentType: "image/png"
+    });
+  } catch (screenshotError) {
+    await testInfo.attach(`${tc.id}-screenshot-error`, {
+      body: JSON.stringify({
+        message: screenshotError instanceof Error ? screenshotError.message : String(screenshotError)
+      }, null, 2),
+      contentType: "application/json"
+    });
+  }
 }
 
 async function waitForTable(page: any) {
@@ -148,12 +162,13 @@ async function getVisibleEmployeeNames(page: any) {
     .catch(() => [] as string[]);
 }
 
-async function fillEmployeeAutocomplete(page: any, value: string) {
+async function fillEmployeeAutocomplete(page: any, value: string, excludedEmployeeName = "") {
   const empInput = fieldGroupByLabel(page, /Employee Name/i).locator("input");
   const firstToken = value.split(/\s+/)[0] ?? value;
   const terms = [value, firstToken, value.toLowerCase(), firstToken.toLowerCase()]
     .map((term) => term.trim().toLowerCase())
     .filter(Boolean);
+  const excluded = excludedEmployeeName.trim().toLowerCase();
 
   for (const term of terms) {
     await empInput.fill(term);
@@ -172,6 +187,7 @@ async function fillEmployeeAutocomplete(page: any, value: string) {
     ).catch(() => [] as string[]);
 
     for (const selectedName of optionTexts) {
+      if (excluded && selectedName.toLowerCase() === excluded) continue;
       if (selectedName && !/No Records Found|Searching\.\.\.\.?/i.test(selectedName)) {
         await page.locator(".oxd-autocomplete-option", { hasText: selectedName }).first().click();
         await page.waitForTimeout(300);
@@ -184,11 +200,11 @@ async function fillEmployeeAutocomplete(page: any, value: string) {
   throw new Error(`No valid Employee Name autocomplete option found for "${value}"`);
 }
 
-async function fillAnyEmployeeAutocomplete(page: any) {
+async function fillAnyEmployeeAutocomplete(page: any, excludedEmployeeName = "") {
   const probes = ["a", "an", "e", "n"];
   for (const probe of probes) {
     try {
-      return await fillEmployeeAutocomplete(page, probe);
+      return await fillEmployeeAutocomplete(page, probe, excludedEmployeeName);
     } catch {
       // try the next broad probe
     }
@@ -196,12 +212,12 @@ async function fillAnyEmployeeAutocomplete(page: any) {
   throw new Error("No valid Employee Name autocomplete option found from live suggestions.");
 }
 
-async function selectEmployeeForAdd(page: any, employeeName: string) {
+async function selectEmployeeForAdd(page: any, employeeName: string, excludedEmployeeName = "") {
   const normalized = employeeName.trim();
-  if (!normalized || /orange test/i.test(normalized)) {
-    return fillAnyEmployeeAutocomplete(page);
+  if (!normalized || /orange test|auto_different_employee/i.test(normalized)) {
+    return fillAnyEmployeeAutocomplete(page, excludedEmployeeName);
   }
-  return fillEmployeeAutocomplete(page, normalized);
+  return fillEmployeeAutocomplete(page, normalized, excludedEmployeeName);
 }
 
 async function openAddUser(page: any, app: OrangeHrmPage) {
@@ -537,16 +553,53 @@ async function runEditUserCase(context: UserCaseContext) {
       return;
 
     case "TC-U17":
-      await ensureUserExists(page, app, username);
-      await openEditFormForUser(page, app, username);
-      await selectDropdownByLabel(page, /^Status/i, statusRegex(arg2));
+    {
+      const [
+        sourceUsername = "",
+        sourceRole = "ESS",
+        sourceStatus = "Enabled",
+        sourceEmployeeName = "Orange Test",
+        updatedUsername = `${sourceUsername}_edited`,
+        updatedRole = "Admin",
+        updatedStatus = "Disabled",
+        updatedEmployeeName = "AUTO_DIFFERENT_EMPLOYEE"
+      ] = args;
+
+      if (updatedUsername !== sourceUsername) {
+        await deleteUserIfExists(page, app, updatedUsername);
+      }
+
+      await addUserFromCase(page, app, sourceUsername, sourceRole, sourceStatus, sourceEmployeeName);
+      await waitForSuccessToast(page);
+      await openEditFormForUser(page, app, sourceUsername);
+
+      const currentEmployeeName = (await fieldGroupByLabel(page, /Employee Name/i).locator("input").inputValue()).trim();
+      await selectDropdownByLabel(page, /User Role/i, updatedRole);
+      const savedEmployeeName = await selectEmployeeForAdd(page, updatedEmployeeName, currentEmployeeName);
+      await selectDropdownByLabel(page, /^Status/i, statusRegex(updatedStatus));
+      await fieldGroupByLabel(page, /Username/i).locator("input").fill(updatedUsername);
       await page.getByRole("button", { name: /^Save$/i }).click();
       await waitForSuccessToast(page);
-      await searchUserByUsername(page, app, username);
-      const updatedStatus = await page.locator(".oxd-table-body .oxd-table-row").first()
-        .locator(".oxd-table-cell").nth(4).innerText();
-      expect(updatedStatus.trim()).toMatch(statusRegex(arg2));
+      await searchUserByUsername(page, app, updatedUsername);
+
+      const updatedRow = page.locator(".oxd-table-body .oxd-table-row").first();
+      await expect(updatedRow).toBeVisible();
+      await expect(page.getByText(/No Records Found/i).first()).not.toBeVisible();
+
+      const listedUsername = await updatedRow.locator(".oxd-table-cell").nth(1).innerText();
+      const listedRole = await updatedRow.locator(".oxd-table-cell").nth(2).innerText();
+      const listedStatus = await updatedRow.locator(".oxd-table-cell").nth(4).innerText();
+      expect(listedUsername.trim()).toBe(updatedUsername);
+      expect(listedRole.trim()).toMatch(new RegExp(updatedRole, "i"));
+      expect(listedStatus.trim()).toMatch(statusRegex(updatedStatus));
+
+      await openEditFormForUser(page, app, updatedUsername);
+      await expect(fieldGroupByLabel(page, /Username/i).locator("input")).toHaveValue(updatedUsername);
+      await expect(fieldGroupByLabel(page, /Employee Name/i).locator("input")).toHaveValue(savedEmployeeName);
+      expect(await getSelectTextByLabel(page, /User Role/i)).toMatch(new RegExp(updatedRole, "i"));
+      expect(await getSelectTextByLabel(page, /^Status/i)).toMatch(statusRegex(updatedStatus));
       return;
+    }
 
     default:
       throw new Error(`Unhandled edit case: ${tc.id}`);
@@ -577,14 +630,6 @@ async function runDeleteUserCase(context: UserCaseContext) {
       await expect(page.locator(".orangehrm-modal-footer")).not.toBeVisible();
       return;
 
-    case "TC-U20": {
-      const rowCount = await getTableRowCount(page);
-      expect(rowCount).toBeGreaterThan(0);
-      const checkboxCount = await page.locator(".oxd-table-body .oxd-checkbox-wrapper").count();
-      expect(checkboxCount).toBe(rowCount);
-      return;
-    }
-
     default:
       throw new Error(`Unhandled delete case: ${tc.id}`);
   }
@@ -600,14 +645,14 @@ async function runIntegrationCase(context: UserCaseContext) {
   ] = args;
 
   switch (tc.id) {
-    case "TC-U21":
+    case "TC-U20":
       await addUserFromCase(page, app, username, role, status, employeeName);
       await waitForSuccessToast(page);
       await searchUserByUsername(page, app, username);
       await expect(page.locator(".oxd-table-body .oxd-table-row").first()).toBeVisible();
       return;
 
-    case "TC-U22":
+    case "TC-U21":
       await addUserFromCase(page, app, username, role, status, employeeName);
       await waitForSuccessToast(page);
       await openEditFormForUser(page, app, username);

@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { loadTestCases } from "../src/data/testcase-loader";
+import { registerWorkbookStatusSync } from "../src/data/testcase-status-updater";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 
 const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Employee List") || tc.sheet.includes("Danh sách nhân viên"));
+registerWorkbookStatusSync(test, testCases);
 
 // Đảm bảo luôn có test case TC-E23 (Tìm kiếm với khoảng trắng)
 if (!testCases.some(tc => tc.id === "TC-E23")) {

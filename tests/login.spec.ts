@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 import { loadTestCases } from "../src/data/testcase-loader";
+import { registerWorkbookStatusSync } from "../src/data/testcase-status-updater";
 
 // Load ALL test cases for "Đăng nhập"
 const allTestCases = loadTestCases().filter((tc) => tc.sheet === "Login");
+registerWorkbookStatusSync(test, allTestCases);
 
 const getTC = (id: string) => allTestCases.find((tc) => tc.id === id);
 
