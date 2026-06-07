@@ -4,6 +4,24 @@ import { OrangeHrmPage } from "../src/pages/orangehrm-page";
 
 const testCases = loadTestCases().filter((tc) => tc.sheet.includes("Employee List") || tc.sheet.includes("Danh sách nhân viên"));
 
+// Đảm bảo luôn có test case TC-E23 (Tìm kiếm với khoảng trắng)
+if (!testCases.some(tc => tc.id === "TC-E23")) {
+  testCases.push({
+    sheet: "Employee List",
+    sheetName: "Danh sách nhân viên",
+    group: "Xem và tìm kiếm",
+    rowNumber: 0,
+    id: "TC-E23",
+    requirement: "",
+    name: "Tìm kiếm với khoảng trắng",
+    objective: "Tìm kiếm bằng khoảng trắng trả về không tìm thấy bản ghi nào",
+    inputRaw: "Admin\nadmin123\n   ",
+    input: ["Admin", "admin123", "   "],
+    expected: "Hiển thị thông báo không tìm thấy bản ghi nào (No Records Found)",
+    expectedStatus: "Đạt"
+  });
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Chờ spinner biến mất */
@@ -203,6 +221,20 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
       await waitForSpinner(page);
       const count = await page.locator(".oxd-table-body .oxd-table-row").count();
       expect(count).toBeGreaterThan(0);
+      break;
+    }
+
+    case "TC-E23": {
+      // Tìm kiếm với khoảng trắng (tham chiếu TC-U08)
+      await app.searchByLabeledInput("Employee Name", a2 || "   ");
+      await page.locator("button[type='submit']").click();
+      await waitForSpinner(page);
+
+      const hasNoRecords = await page.getByText(/No Records Found/i).first().isVisible({ timeout: 5000 }).catch(() => false);
+      if (!hasNoRecords) {
+        throw new Error(`BUG: Tìm kiếm với khoảng trắng ("   ") trong Employee Name không lọc được dữ liệu, vẫn hiển thị đầy đủ danh sách nhân viên.`);
+      }
+      expect(hasNoRecords).toBe(true);
       break;
     }
 
@@ -566,7 +598,7 @@ async function runEmployeeCase(tc: any, app: OrangeHrmPage) {
 
 test.describe("OrangeHRM Employee List E2E", () => {
   test.describe("Nhóm 1: Xem & tìm kiếm", () => {
-    const groupCases = testCases.filter((tc) => ["TC-E01", "TC-E02", "TC-E03", "TC-E04", "TC-E05", "TC-E06", "TC-E07"].includes(tc.id));
+    const groupCases = testCases.filter((tc) => ["TC-E01", "TC-E02", "TC-E03", "TC-E04", "TC-E05", "TC-E06", "TC-E07", "TC-E23"].includes(tc.id));
     for (const tc of groupCases) {
       test(`${tc.id} | ${tc.name}`, async ({ page }) => {
         const app = new OrangeHrmPage(page);
