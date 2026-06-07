@@ -78,7 +78,7 @@ async function attachFailureContext(context: UserCaseContext, error: unknown) {
 }
 
 async function waitForTable(page: any) {
-  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => { });
   const rowVisible = await page.locator(".oxd-table-body .oxd-table-row").first()
     .waitFor({ state: "visible", timeout: 10000 })
     .then(() => true)
@@ -86,7 +86,7 @@ async function waitForTable(page: any) {
   if (!rowVisible) {
     await page.getByText(/No Records Found/i).first()
       .waitFor({ state: "visible", timeout: 10000 })
-      .catch(() => {});
+      .catch(() => { });
   }
 }
 
@@ -105,7 +105,7 @@ async function ensureUserFiltersVisible(page: any) {
   const toggle = page.locator(".oxd-table-filter-header-options .oxd-icon-button").first();
   await toggle.waitFor({ state: "visible", timeout: 15000 });
   await toggle.click();
-  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => { });
   await expect(usernameInput).toBeVisible({ timeout: 10000 });
   await expect(page.getByRole("button", { name: /Search/i })).toBeVisible({ timeout: 10000 });
   await expect(page.getByRole("button", { name: /Reset/i })).toBeVisible({ timeout: 10000 });
@@ -119,7 +119,7 @@ async function submitUserSearch(page: any) {
 
 async function waitForListPage(page: any) {
   await expect(page).toHaveURL(/viewSystemUsers/, { timeout: 15000 });
-  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+  await page.locator(".oxd-loading-spinner").waitFor({ state: "detached", timeout: 10000 }).catch(() => { });
   await expect(page.getByRole("button", { name: /Add/i })).toBeVisible({ timeout: 15000 });
   await ensureUserFiltersVisible(page);
 }
@@ -165,7 +165,7 @@ async function fillEmployeeAutocomplete(page: any, value: string) {
         .filter(Boolean);
       if (texts.length === 0) return false;
       return texts.some((text) => text !== "Searching....");
-    }, { timeout: 10000 }).catch(() => {});
+    }, { timeout: 10000 }).catch(() => { });
 
     const optionTexts = await page.locator(".oxd-autocomplete-option").evaluateAll((nodes: Element[]) =>
       nodes.map((node) => node.textContent?.trim() ?? "").filter(Boolean)
@@ -640,28 +640,26 @@ async function runUserCase(tc: UserTestCase, app: OrangeHrmPage, testInfo: TestI
   }
 }
 
-test.describe("OrangeHRM User Management E2E", () => {
-  for (const [group, cases] of groupedUserCases) {
-    test.describe(group, () => {
-      for (const tc of cases) {
-        test(`${tc.id} | ${tc.name}`, async ({ page }, testInfo) => {
-          const app = new OrangeHrmPage(page);
-          try {
-            await runUserCase(tc, app, testInfo);
-          } catch (error) {
-            await attachFailureContext({
-              app,
-              page,
-              tc,
-              loginUser: tc.input[0] ?? "",
-              loginPass: tc.input[1] ?? "",
-              args: tc.input.slice(2),
-              testInfo
-            }, error);
-            throw error;
-          }
-        });
-      }
-    });
-  }
-});
+for (const [group, cases] of groupedUserCases) {
+  test.describe(group, () => {
+    for (const tc of cases) {
+      test(`${tc.id} | ${tc.name}`, async ({ page }, testInfo) => {
+        const app = new OrangeHrmPage(page);
+        try {
+          await runUserCase(tc, app, testInfo);
+        } catch (error) {
+          await attachFailureContext({
+            app,
+            page,
+            tc,
+            loginUser: tc.input[0] ?? "",
+            loginPass: tc.input[1] ?? "",
+            args: tc.input.slice(2),
+            testInfo
+          }, error);
+          throw error;
+        }
+      });
+    }
+  });
+}
