@@ -25,6 +25,22 @@ const SHEET_DEFINITIONS = [
   { sheet: "Employee List", names: ["Danh sách nhân viên", "👥 Employee List"] }
 ];
 
+function normalizeTestCaseId(rawId: string) {
+  const id = rawId.trim();
+  const match = id.match(/^(TC-[A-Z]+)(\d+)$/i);
+  if (!match) return id;
+
+  const [, prefix, digits] = match;
+  const caseNumber = Number(digits);
+  if (Number.isNaN(caseNumber)) return id;
+
+  const normalizedDigits = caseNumber < 10
+    ? String(caseNumber).padStart(2, "0")
+    : String(caseNumber);
+
+  return `${prefix}${normalizedDigits}`;
+}
+
 export function loadTestCases(): TestCaseRow[] {
   const wb = XLSX.readFile(DATA_FILE);
   const all: TestCaseRow[] = [];
@@ -52,7 +68,7 @@ export function loadTestCases(): TestCaseRow[] {
         continue;
       }
 
-      const id = firstColumn;
+      const id = normalizeTestCaseId(firstColumn);
       if (!/^TC-/.test(id)) continue;
       const inputRaw = String(row[3] ?? "");
       all.push({
